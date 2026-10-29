@@ -45,7 +45,12 @@ const AUTH_ITERATIONS = 100000;
 const AUTH_KEY_LEN = 256;
 const AUTH_HASH_HEX = 'b39d48d1e7fcd2100d5c914f97d16faf46a4a5668075f818dbc3ac92f5b10a2e';
 
+// Activation validity duration: 30 days (1 month)
+const ACTIVATION_VALIDITY_DAYS = 30;
+const ACTIVATION_VALIDITY_MS = ACTIVATION_VALIDITY_DAYS * 24 * 60 * 60 * 1000;
+
 let isAppActivated = false;
+let appActivatedAt = null;
 let isJsonUnlocked = false;
 let keepJsonUnlocked = false;
 let currentAnalytics = { lifetimeSent: 0, dailyHistory: {} };
@@ -85,6 +90,17 @@ async function verifyMasterPassword(enteredPassword) {
     console.error('[Security] Cryptographic verification failure:', err);
     return false;
   }
+}
+
+/**
+ * Calculate remaining validity days for the activation session
+ */
+function getActivationRemainingDays(activatedAt) {
+  if (!activatedAt || typeof activatedAt !== 'number') return 0;
+  const elapsed = Date.now() - activatedAt;
+  const remainingMs = ACTIVATION_VALIDITY_MS - elapsed;
+  if (remainingMs <= 0) return 0;
+  return Math.ceil(remainingMs / (24 * 60 * 60 * 1000));
 }
 
 // Collapsible Section states (persisted)
@@ -351,6 +367,8 @@ const passwordModalSubmitBtn = document.getElementById('passwordModalSubmitBtn')
 
 // DOM Elements - Activation / Lock Screen
 const activationScreen = document.getElementById('activationScreen');
+const activationSubtitle = document.getElementById('activationSubtitle');
+const activationDurationHint = document.getElementById('activationDurationHint');
 const activationForm = document.getElementById('activationForm');
 const activationPasswordInput = document.getElementById('activationPasswordInput');
 const toggleActivationPasswordBtn = document.getElementById('toggleActivationPasswordBtn');
@@ -372,6 +390,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 async function loadInitialState() {
   const data = await chrome.storage.local.get([
     'isAppActivated',
+    'appActivatedAt',
     'leads',
     'spamCheckLeads',
     'queueState',
@@ -387,9 +406,22 @@ async function loadInitialState() {
     'antiSleepState'
   ]);
 
-  // 0. App Master Activation Check
-  isAppActivated = data.isAppActivated === true;
-  updateActivationUI(isAppActivated);
+  // 0. App Master Activation Check (30-day / 1-month validity)
+  const now = Date.now();
+  const storedActivatedAt = typeof data.appActivatedAt === 'number' ? data.appActivatedAt : null;
+  const isExpired = storedActivatedAt ? (now - storedActivatedAt >= ACTIVATION_VALIDITY_MS) : true;
+
+  if (data.isAppActivated === true && !isExpired) {
+    isAppActivated = true;
+    appActivatedAt = storedActivatedAt;
+  } else {
+    isAppActivated = false;
+    appActivatedAt = null;
+    if (data.isAppActivated === true && isExpired) {
+      await chrome.storage.local.set({ isAppActivated: false });
+    }
+  }
+  updateActivationUI(isAppActivated, storedActivatedAt);
 
   // 1. Theme
   if (data.theme) {
@@ -513,9 +545,14 @@ function setupStorageListener() {
   chrome.storage.onChanged.addListener((changes, areaName) => {
     if (areaName !== 'local') return;
 
-    if (changes.isAppActivated !== undefined) {
-      isAppActivated = changes.isAppActivated.newValue === true;
-      updateActivationUI(isAppActivated);
+    if (changes.isAppActivated !== undefined || changes.appActivatedAt !== undefined) {
+      const newActivated = changes.isAppActivated ? changes.isAppActivated.newValue === true : isAppActivated;
+      const newActivatedAt = changes.appActivatedAt ? changes.appActivatedAt.newValue : appActivatedAt;
+      const now = Date.now();
+      const isExpired = newActivatedAt ? (now - newActivatedAt >= ACTIVATION_VALIDITY_MS) : true;
+      isAppActivated = newActivated && !isExpired;
+      appActivatedAt = isAppActivated ? newActivatedAt : null;
+      updateActivationUI(isAppActivated, appActivatedAt);
     }
 
     if (changes.theme) {
@@ -676,7 +713,9 @@ function setupEventListeners() {
   }
   if (lockAppBtn) {
     lockAppBtn.addEventListener('click', async () => {
+      isAppActivated = false;
       await chrome.storage.local.set({ isAppActivated: false });
+      updateActivationUI(false, appActivatedAt);
       showBanner(statusBanner, 'Workspace locked. Master password required to re-open.', 'info');
     });
   }
@@ -1748,7 +1787,7 @@ function closePasswordModal() {
 /**
  * UI State Controller for Extension Activation Screen
  */
-function updateActivationUI(isActivated) {
+function updateActivationUI(isActivated, activatedAt) {
   if (!activationScreen) return;
   if (isActivated) {
     activationScreen.style.display = 'none';
@@ -1759,8 +1798,20 @@ function updateActivationUI(isActivated) {
     if (activationPasswordInput) {
       activationPasswordInput.value = '';
     }
+    if (lockAppBtn) {
+      const daysLeft = getActivationRemainingDays(activatedAt || appActivatedAt);
+      lockAppBtn.title = `Lock Workspace (Authorized: ~${daysLeft} day${daysLeft === 1 ? '' : 's'} remaining)`;
+    }
   } else {
     activationScreen.style.display = 'flex';
+    const wasExpired = activatedAt && (Date.now() - activatedAt >= ACTIVATION_VALIDITY_MS);
+    if (activationSubtitle) {
+      if (wasExpired) {
+        activationSubtitle.textContent = 'Your 30-day authorization has expired. Please re-enter the master security key to renew access for another month.';
+      } else {
+        activationSubtitle.textContent = 'Enter the authorized master security key to activate and unlock your Midey Mailer workspace. Access remains valid for 30 days without asking again.';
+      }
+    }
     if (activationPasswordInput) {
       activationPasswordInput.value = '';
       setTimeout(() => activationPasswordInput.focus(), 80);
@@ -1795,10 +1846,20 @@ async function handleActivationSubmit() {
       activationErrorBanner.style.display = 'none';
       activationErrorBanner.textContent = '';
     }
+    const now = Date.now();
     isAppActivated = true;
-    await chrome.storage.local.set({ isAppActivated: true });
-    updateActivationUI(true);
-    showBanner(statusBanner, 'System successfully unlocked & activated!', 'success');
+    appActivatedAt = now;
+    await chrome.storage.local.set({ 
+      isAppActivated: true,
+      appActivatedAt: now
+    });
+    updateActivationUI(true, now);
+    const expDateStr = new Date(now + ACTIVATION_VALIDITY_MS).toLocaleDateString(undefined, {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric'
+    });
+    showBanner(statusBanner, `System successfully unlocked! Access is authorized for 30 days (valid until ${expDateStr}).`, 'success');
   } else {
     if (activationErrorBanner) {
       activationErrorBanner.textContent = 'Invalid master security key. Access denied.';

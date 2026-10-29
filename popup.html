@@ -16,7 +16,7 @@
       <div class="activation-brand-icon">M</div>
       <div class="activation-badge">🔒 Security Activation</div>
       <h2 class="activation-title">Extension Locked</h2>
-      <p class="activation-subtitle">Enter the authorized master security key to activate and unlock your Midey Mailer workspace.</p>
+      <p class="activation-subtitle" id="activationSubtitle">Enter the authorized master security key to activate and unlock your Midey Mailer workspace.</p>
 
       <form id="activationForm" class="activation-form" onsubmit="return false;">
         <div class="activation-input-wrapper">
@@ -32,6 +32,7 @@
 
       <div class="activation-card-footer">
         <span class="activation-lock-hint">🛡️ Protected with PBKDF2-SHA256 Cryptographic Verification</span>
+        <div id="activationDurationHint" style="font-size: 11px; color: var(--text-dim); margin-top: 6px; text-align: center;">⏳ Valid for 30 days once entered. You will only be prompted once a month.</div>
       </div>
     </div>
   </div>

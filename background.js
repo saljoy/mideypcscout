@@ -27,6 +27,10 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   }
 });
 
+// Activation validity duration: 30 days (1 month)
+const ACTIVATION_VALIDITY_DAYS = 30;
+const ACTIVATION_VALIDITY_MS = ACTIVATION_VALIDITY_DAYS * 24 * 60 * 60 * 1000;
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // Handle async operations cleanly
   handleRuntimeMessage(message, sender).then(sendResponse).catch((err) => {
@@ -42,12 +46,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 async function handleRuntimeMessage(message, sender) {
   const { action, leadId, settings, windowId } = message || {};
 
-  // Security gate: Ensure workspace is activated and unlocked before executing dispatches
+  // Security gate: Ensure workspace is activated and within valid 30-day window before executing dispatches
   const dispatchActions = ['START_QUEUE', 'SEND_SINGLE', 'START_SPAM_CHECK_QUEUE', 'MANUAL_IN_PAGE_COMPOSE'];
   if (dispatchActions.includes(action)) {
-    const { isAppActivated } = await chrome.storage.local.get('isAppActivated');
-    if (isAppActivated === false) {
-      return { success: false, error: 'Extension workspace is locked. Please unlock the extension to dispatch emails.' };
+    const { isAppActivated, appActivatedAt } = await chrome.storage.local.get(['isAppActivated', 'appActivatedAt']);
+    const now = Date.now();
+    const isExpired = !appActivatedAt || (now - appActivatedAt >= ACTIVATION_VALIDITY_MS);
+    if (isAppActivated === false || isExpired) {
+      if (isAppActivated && isExpired) {
+        await chrome.storage.local.set({ isAppActivated: false });
+      }
+      return { success: false, error: 'Extension authorization has expired (valid for 30 days). Please re-enter the master key in the popup.' };
     }
   }
 
@@ -288,11 +297,16 @@ async function handleRuntimeMessage(message, sender) {
  * Initialize default settings in storage
  */
 async function initializeDefaults() {
-  const current = await chrome.storage.local.get(['settings', 'leads', 'queueState', 'antiSleepState', 'isAppActivated']);
+  const current = await chrome.storage.local.get(['settings', 'leads', 'queueState', 'antiSleepState', 'isAppActivated', 'appActivatedAt']);
   const updates = {};
 
   if (current.isAppActivated === undefined) {
     updates.isAppActivated = false;
+  } else if (current.isAppActivated === true) {
+    const now = Date.now();
+    if (!current.appActivatedAt || (now - current.appActivatedAt >= ACTIVATION_VALIDITY_MS)) {
+      updates.isAppActivated = false;
+    }
   }
 
   if (!current.settings) {
