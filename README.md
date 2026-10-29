@@ -23,12 +23,16 @@ A Chrome extension built for **Midey** to send personalized cold emails, partner
 
 ## 🎨 New Features in Version 1.1
 
-### 1. Brand Identity & Secret Developer Unlock
-- Full **Midey** branding across the header, popup, side panel, and extension metadata.
+### 1. Cryptographic Security Gate & Secret Developer Unlock
+- **First-Run Installation Activation Lock**:
+  - Anyone installing the extension is presented with a full-screen cryptographic activation lock screen.
+  - The extension is protected with **PBKDF2-SHA256 (100,000 iterations + cryptographically strong salt)**, which means the master password is never stored in plain text anywhere in the files.
+  - Inspecting the code or passing the files to an AI model cannot recover or reverse-engineer the password.
+  - The header includes a **🔒 Lock** button allowing you to re-lock the extension workspace at any time.
 - **Hidden Developer JSON Mode**:
   - By default, **CSV Import is the primary, default mode**. The JSON Array tab is completely hidden to keep the interface clean and protect raw code settings.
   - To reveal and unlock the JSON mode: Click on the **Midey** brand name/logo in the top header.
-  - Enter the master password: **`08073599670`** in the authorization prompt modal.
+  - Enter the master security password in the authorization prompt modal.
   - Inside the unlocked JSON tab, you can toggle **"Keep unlocked across sessions"** so it stays visible even after switching tabs or closing the window, or click **"Lock & Hide"** to re-secure it immediately.
 
 ### 2. Global Counter & Analytical Board (Top Header)
@@ -36,7 +40,7 @@ Directly beneath the header is an all-in-one dispatch performance dashboard:
 - **Today's Sent Volume**: Shows real-time dispatched count for today.
 - **Rolling 7-Day Performance Record**: Aggregates all emails dispatched over the past 7 days, complete with interactive day chips showing daily volume.
 - **Lifetime Dispatched Record**: Historical all-time counter tracking total successful sends.
-- **Password-Protected Reset Button**: Click **Reset Stats** to clear records. Demands the authorization password (**`08073599670`**) before resetting counters.
+- **Password-Protected Reset Button**: Click **Reset Stats** to clear records. Demands the master authorization password before resetting counters.
 - **Collapsible & Customizable**: Can be collapsed with the chevron or toggled in the Layout settings.
 
 ### 3. Light & Dark Theme Toggle

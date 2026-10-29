@@ -1566,6 +1566,205 @@ body {
   letter-spacing: 0.3px;
 }
 
+/* ==========================================================================
+   Activation & Lock Screen Styles
+   ========================================================================== */
+.activation-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  background: rgba(11, 15, 25, 0.92);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  animation: activation-fade-in 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
 
+[data-theme="light"] .activation-screen {
+  background: rgba(248, 250, 252, 0.92);
+}
 
+.activation-card {
+  width: 100%;
+  max-width: 380px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(99, 102, 241, 0.15);
+  padding: 28px 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 14px;
+  animation: activation-pop-in 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
 
+.activation-brand-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 26px;
+  font-weight: 800;
+  box-shadow: 0 8px 16px -4px rgba(79, 70, 229, 0.4);
+}
+
+.activation-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 20px;
+  background: rgba(79, 70, 229, 0.12);
+  color: #818cf8;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+
+[data-theme="light"] .activation-badge {
+  color: #4f46e5;
+  background: rgba(79, 70, 229, 0.08);
+}
+
+.activation-title {
+  font-size: 19px;
+  font-weight: 700;
+  color: var(--text-main);
+  letter-spacing: -0.3px;
+  margin: 0;
+}
+
+.activation-subtitle {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin: 0;
+  max-width: 320px;
+}
+
+.activation-form {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.activation-input-wrapper {
+  position: relative;
+  width: 100%;
+  display: flex;
+  align-items: center;
+}
+
+.activation-input {
+  width: 100%;
+  height: 42px;
+  padding: 0 42px 0 14px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  color: var(--text-main);
+  font-size: 13.5px;
+  transition: all 0.2s ease;
+  outline: none;
+}
+
+.activation-input:focus {
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 3px var(--primary-glow);
+}
+
+.activation-reveal-btn {
+  position: absolute;
+  right: 10px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 15px;
+  padding: 4px;
+  opacity: 0.6;
+  transition: opacity 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.activation-reveal-btn:hover {
+  opacity: 1;
+}
+
+.activation-error {
+  font-size: 12px;
+  color: var(--danger);
+  background: var(--danger-glow);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  text-align: left;
+}
+
+.activation-submit-btn {
+  width: 100%;
+  height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 13.5px;
+  font-weight: 600;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  box-shadow: 0 4px 12px -2px rgba(79, 70, 229, 0.4);
+}
+
+.activation-submit-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.activation-btn-arrow {
+  transition: transform 0.2s ease;
+}
+
+.activation-submit-btn:hover:not(:disabled) .activation-btn-arrow {
+  transform: translateX(3px);
+}
+
+.activation-card-footer {
+  margin-top: 4px;
+}
+
+.activation-lock-hint {
+  font-size: 10.5px;
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+@keyframes activation-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes activation-pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.94) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}

@@ -10,6 +10,32 @@
 
 <body>
 
+  <!-- Initial Install / Activation Lock Screen Overlay -->
+  <div id="activationScreen" class="activation-screen" style="display: none;">
+    <div class="activation-card">
+      <div class="activation-brand-icon">M</div>
+      <div class="activation-badge">🔒 Security Activation</div>
+      <h2 class="activation-title">Extension Locked</h2>
+      <p class="activation-subtitle">Enter the authorized master security key to activate and unlock your Midey Mailer workspace.</p>
+
+      <form id="activationForm" class="activation-form" onsubmit="return false;">
+        <div class="activation-input-wrapper">
+          <input type="password" id="activationPasswordInput" class="activation-input" placeholder="Enter master security key..." autocomplete="current-password" autofocus required />
+          <button type="button" id="toggleActivationPasswordBtn" class="activation-reveal-btn" title="Show / Hide Key">👁️</button>
+        </div>
+        <div id="activationErrorBanner" class="activation-error" style="display: none;"></div>
+        <button type="submit" id="activateAppBtn" class="btn btn-primary activation-submit-btn">
+          <span>Unlock &amp; Activate System</span>
+          <span class="activation-btn-arrow">→</span>
+        </button>
+      </form>
+
+      <div class="activation-card-footer">
+        <span class="activation-lock-hint">🛡️ Protected with PBKDF2-SHA256 Cryptographic Verification</span>
+      </div>
+    </div>
+  </div>
+
   <!-- App Header with Midey Branding (Clicking Midey triggers secret developer unlock) -->
   <header class="app-header">
     <div class="brand" id="brandSecretTrigger" title="Click Midey to unlock developer JSON mode"
@@ -21,6 +47,11 @@
       </div>
     </div>
     <div class="header-actions">
+      <!-- Lock Extension Button -->
+      <button id="lockAppBtn" class="btn btn-secondary btn-xs" title="Lock Extension Workspace">
+        🔒 Lock
+      </button>
+
       <!-- Layout & Minimalism Customizer Button -->
       <button id="layoutSettingsBtn" class="btn btn-secondary btn-xs" title="Customize Homepage Sections & Minimalism">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">

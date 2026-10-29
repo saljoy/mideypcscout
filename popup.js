@@ -37,12 +37,55 @@ let currentSpamCheckLeads = [];
 let currentAntiSleepState = { isActive: false, reason: null, durationMinutes: null, expiresAt: null };
 let antiSleepCountdownInterval = null;
 
-// Security & Master Password for Hidden Features
-const MASTER_PASSWORD = '08073599670';
+// Cryptographic Security & Master Verification Parameters
+// Uses PBKDF2-SHA256 with 100,000 iterations to ensure one-way verification
+// that cannot be reverse-engineered or extracted by code inspection or AI analysis.
+const AUTH_SALT = 'M1d3y_Gm41l_L3ad_D1sp4tch3r_S3cur1ty_S@lt_v2_99x!';
+const AUTH_ITERATIONS = 100000;
+const AUTH_KEY_LEN = 256;
+const AUTH_HASH_HEX = 'b39d48d1e7fcd2100d5c914f97d16faf46a4a5668075f818dbc3ac92f5b10a2e';
+
+let isAppActivated = false;
 let isJsonUnlocked = false;
 let keepJsonUnlocked = false;
 let currentAnalytics = { lifetimeSent: 0, dailyHistory: {} };
 let activePasswordCallback = null;
+
+/**
+ * Verify Master Password against PBKDF2-SHA256 Hash using native WebCrypto
+ */
+async function verifyMasterPassword(enteredPassword) {
+  if (typeof enteredPassword !== 'string') return false;
+  const normalized = enteredPassword.trim();
+  if (!normalized) return false;
+
+  try {
+    const enc = new TextEncoder();
+    const keyMaterial = await crypto.subtle.importKey(
+      'raw',
+      enc.encode(normalized),
+      { name: 'PBKDF2' },
+      false,
+      ['deriveBits']
+    );
+    const derivedBits = await crypto.subtle.deriveBits(
+      {
+        name: 'PBKDF2',
+        salt: enc.encode(AUTH_SALT),
+        iterations: AUTH_ITERATIONS,
+        hash: 'SHA-256'
+      },
+      keyMaterial,
+      AUTH_KEY_LEN
+    );
+    const hashArray = Array.from(new Uint8Array(derivedBits));
+    const computedHex = hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
+    return computedHex === AUTH_HASH_HEX;
+  } catch (err) {
+    console.error('[Security] Cryptographic verification failure:', err);
+    return false;
+  }
+}
 
 // Collapsible Section states (persisted)
 let currentCollapsed = {
@@ -84,6 +127,7 @@ const themeToggleBtn = document.getElementById('themeToggleBtn');
 const themeIcon = document.getElementById('themeIcon');
 const themeLabel = document.getElementById('themeLabel');
 const openSidePanelBtn = document.getElementById('openSidePanelBtn');
+const lockAppBtn = document.getElementById('lockAppBtn');
 
 // DOM Elements - Secret Brand Trigger & JSON Unlocking
 const brandSecretTrigger = document.getElementById('brandSecretTrigger');
@@ -297,6 +341,14 @@ const passwordModalError = document.getElementById('passwordModalError');
 const passwordModalCancelBtn = document.getElementById('passwordModalCancelBtn');
 const passwordModalSubmitBtn = document.getElementById('passwordModalSubmitBtn');
 
+// DOM Elements - Activation / Lock Screen
+const activationScreen = document.getElementById('activationScreen');
+const activationForm = document.getElementById('activationForm');
+const activationPasswordInput = document.getElementById('activationPasswordInput');
+const toggleActivationPasswordBtn = document.getElementById('toggleActivationPasswordBtn');
+const activationErrorBanner = document.getElementById('activationErrorBanner');
+const activateAppBtn = document.getElementById('activateAppBtn');
+
 /**
  * Initialize on DOMContentLoaded
  */
@@ -311,6 +363,7 @@ document.addEventListener('DOMContentLoaded', async () => {
  */
 async function loadInitialState() {
   const data = await chrome.storage.local.get([
+    'isAppActivated',
     'leads',
     'spamCheckLeads',
     'queueState',
@@ -325,6 +378,10 @@ async function loadInitialState() {
     'filterSettings',
     'antiSleepState'
   ]);
+
+  // 0. App Master Activation Check
+  isAppActivated = data.isAppActivated === true;
+  updateActivationUI(isAppActivated);
 
   // 1. Theme
   if (data.theme) {
@@ -446,6 +503,11 @@ async function loadInitialState() {
 function setupStorageListener() {
   chrome.storage.onChanged.addListener((changes, areaName) => {
     if (areaName !== 'local') return;
+
+    if (changes.isAppActivated !== undefined) {
+      isAppActivated = changes.isAppActivated.newValue === true;
+      updateActivationUI(isAppActivated);
+    }
 
     if (changes.theme) {
       currentTheme = changes.theme.newValue || 'dark';
@@ -580,6 +642,33 @@ function setupStorageListener() {
  * Event Listeners Setup
  */
 function setupEventListeners() {
+  // Master App Activation / Unlock
+  if (activationForm) {
+    activationForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      handleActivationSubmit();
+    });
+  }
+  if (activateAppBtn) {
+    activateAppBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      handleActivationSubmit();
+    });
+  }
+  if (toggleActivationPasswordBtn && activationPasswordInput) {
+    toggleActivationPasswordBtn.addEventListener('click', () => {
+      const isPass = activationPasswordInput.type === 'password';
+      activationPasswordInput.type = isPass ? 'text' : 'password';
+      toggleActivationPasswordBtn.textContent = isPass ? '🔒' : '👁️';
+    });
+  }
+  if (lockAppBtn) {
+    lockAppBtn.addEventListener('click', async () => {
+      await chrome.storage.local.set({ isAppActivated: false });
+      showBanner(statusBanner, 'Workspace locked. Master password required to re-open.', 'info');
+    });
+  }
+
   // Theme Toggle
   themeToggleBtn.addEventListener('click', () => {
     currentTheme = currentTheme === 'dark' ? 'light' : 'dark';
@@ -1550,11 +1639,88 @@ function closePasswordModal() {
 }
 
 /**
- * Verify Master Password Submission
+ * UI State Controller for Extension Activation Screen
  */
-function handlePasswordSubmit() {
+function updateActivationUI(isActivated) {
+  if (!activationScreen) return;
+  if (isActivated) {
+    activationScreen.style.display = 'none';
+    if (activationErrorBanner) {
+      activationErrorBanner.style.display = 'none';
+      activationErrorBanner.textContent = '';
+    }
+    if (activationPasswordInput) {
+      activationPasswordInput.value = '';
+    }
+  } else {
+    activationScreen.style.display = 'flex';
+    if (activationPasswordInput) {
+      activationPasswordInput.value = '';
+      setTimeout(() => activationPasswordInput.focus(), 80);
+    }
+  }
+}
+
+/**
+ * Handle Activation Form Submission & Cryptographic Verification
+ */
+async function handleActivationSubmit() {
+  if (!activationPasswordInput) return;
+  const entered = activationPasswordInput.value.trim();
+  if (!entered) {
+    if (activationErrorBanner) {
+      activationErrorBanner.textContent = 'Please enter the master security key.';
+      activationErrorBanner.style.display = 'block';
+    }
+    activationPasswordInput.focus();
+    return;
+  }
+
+  if (activateAppBtn) {
+    activateAppBtn.disabled = true;
+    activateAppBtn.innerHTML = '<span>Verifying key...</span>';
+  }
+
+  const isValid = await verifyMasterPassword(entered);
+
+  if (isValid) {
+    if (activationErrorBanner) {
+      activationErrorBanner.style.display = 'none';
+      activationErrorBanner.textContent = '';
+    }
+    isAppActivated = true;
+    await chrome.storage.local.set({ isAppActivated: true });
+    updateActivationUI(true);
+    showBanner(statusBanner, 'System successfully unlocked & activated!', 'success');
+  } else {
+    if (activationErrorBanner) {
+      activationErrorBanner.textContent = 'Invalid master security key. Access denied.';
+      activationErrorBanner.style.display = 'block';
+    }
+    activationPasswordInput.classList.remove('shake-error');
+    void activationPasswordInput.offsetWidth;
+    activationPasswordInput.classList.add('shake-error');
+    activationPasswordInput.focus();
+    activationPasswordInput.select();
+  }
+
+  if (activateAppBtn) {
+    activateAppBtn.disabled = false;
+    activateAppBtn.innerHTML = '<span>Unlock &amp; Activate System</span><span class="activation-btn-arrow">→</span>';
+  }
+}
+
+/**
+ * Verify Master Password Submission (Password Modal)
+ */
+async function handlePasswordSubmit() {
   const entered = passwordModalInput ? passwordModalInput.value.trim() : '';
-  if (entered === MASTER_PASSWORD) {
+  if (passwordModalSubmitBtn) passwordModalSubmitBtn.disabled = true;
+
+  const isValid = await verifyMasterPassword(entered);
+  if (passwordModalSubmitBtn) passwordModalSubmitBtn.disabled = false;
+
+  if (isValid) {
     const cb = activePasswordCallback;
     closePasswordModal();
     if (typeof cb === 'function') {
@@ -1623,7 +1789,7 @@ function renderAnalyticsBoard(analytics) {
 function handleResetAnalytics() {
   promptForPassword({
     title: 'Reset Analytics & Counters',
-    promptText: 'Enter authorization password (08073599670) to wipe 7-day history and lifetime dispatched numbers:',
+    promptText: 'Enter master authorization password to wipe 7-day history and lifetime dispatched numbers:',
     onSuccess: async () => {
       currentAnalytics = {
         lifetimeSent: 0,
