@@ -47,7 +47,14 @@ async function handleRuntimeMessage(message, sender) {
   const { action, leadId, settings, windowId } = message || {};
 
   // Security gate: Ensure workspace is activated and within valid 30-day window before executing dispatches
-  const dispatchActions = ['START_QUEUE', 'SEND_SINGLE', 'START_SPAM_CHECK_QUEUE', 'MANUAL_IN_PAGE_COMPOSE'];
+  const dispatchActions = [
+    'START_QUEUE',
+    'SEND_SINGLE',
+    'START_SPAM_CHECK_QUEUE',
+    'MANUAL_IN_PAGE_COMPOSE',
+    'COMPOSE_BCC_BATCH',
+    'SEND_BCC_BATCH'
+  ];
   if (dispatchActions.includes(action)) {
     const { isAppActivated, appActivatedAt } = await chrome.storage.local.get(['isAppActivated', 'appActivatedAt']);
     const now = Date.now();
@@ -187,6 +194,49 @@ async function handleRuntimeMessage(message, sender) {
         return { success: false, error: 'Missing lead object.' };
       }
       return await handleInPageCompose(lead);
+    }
+
+    case 'COMPOSE_BCC_BATCH': {
+      const { leadIds } = message || {};
+      if (!Array.isArray(leadIds) || leadIds.length === 0) {
+        return { success: false, error: 'No lead IDs provided for BCC batch.' };
+      }
+      const { leads = [], settings = {} } = await chrome.storage.local.get(['leads', 'settings']);
+      const batchLeads = leads.filter((l) => leadIds.includes(l.id));
+      if (batchLeads.length === 0) {
+        return { success: false, error: 'None of the batch leads were found in queue.' };
+      }
+
+      let resolvedSubject = batchLeads[0].subject || '';
+      let resolvedBody = batchLeads[0].body || '';
+      if (settings.enableMultiContent && settings.enableContentRotation) {
+        const nextRot = await getNextRotatedContent(settings);
+        if (nextRot) {
+          if (nextRot.subject) resolvedSubject = nextRot.subject;
+          if (nextRot.body) resolvedBody = nextRot.body;
+        }
+      }
+
+      const bccEmails = batchLeads.map((l) => (l.email || '').trim()).filter(Boolean);
+      return await handleInPageCompose({
+        email: null,
+        bccEmails: bccEmails,
+        subject: resolvedSubject,
+        body: resolvedBody
+      });
+    }
+
+    case 'SEND_BCC_BATCH': {
+      const { leadIds } = message || {};
+      if (!Array.isArray(leadIds) || leadIds.length === 0) {
+        return { success: false, error: 'No lead IDs provided for BCC batch.' };
+      }
+      const { leads = [], settings = {} } = await chrome.storage.local.get(['leads', 'settings']);
+      const batchLeads = leads.filter((l) => leadIds.includes(l.id));
+      if (batchLeads.length === 0) {
+        return { success: false, error: 'None of the batch leads were found in queue.' };
+      }
+      return await executeAutoSendForBccBatch(batchLeads, settings, 'leads');
     }
 
     case 'START_ANTI_SLEEP': {
@@ -805,8 +855,7 @@ async function executeInPageAutoSend(leadId, targetLead, settings, storageKey = 
           body: finalBody,
           autoSend: true,
           confidentialMode: Boolean(settings.enableConfidentialMode),
-          confidentialExpiration: settings.confidentialExpiration || '1w',
-          confidentialCoords: settings.enableConfidentialCoordsOverride ? (settings.confidentialCoordinates || null) : null
+          confidentialCoords: settings.enableConfidentialMode ? (settings.confidentialCoordinates || null) : null
         }
       ]
     });
@@ -907,8 +956,7 @@ async function executeStandaloneAutoSend(leadId, targetLead, settings, storageKe
           expectedSubject: targetLead.subject,
           expectedBody: finalBody,
           confidentialMode: Boolean(settings.enableConfidentialMode),
-          confidentialExpiration: settings.confidentialExpiration || '1w',
-          confidentialCoords: settings.enableConfidentialCoordsOverride ? (settings.confidentialCoordinates || null) : null
+          confidentialCoords: settings.enableConfidentialMode ? (settings.confidentialCoordinates || null) : null
         }
       ]
     });
@@ -1078,8 +1126,7 @@ async function executeInPageAutoSendBcc(batch, bccEmails, subject, finalBody, se
           body: finalBody,
           autoSend: true,
           confidentialMode: Boolean(settings.enableConfidentialMode),
-          confidentialExpiration: settings.confidentialExpiration || '1w',
-          confidentialCoords: settings.enableConfidentialCoordsOverride ? (settings.confidentialCoordinates || null) : null
+          confidentialCoords: settings.enableConfidentialMode ? (settings.confidentialCoordinates || null) : null
         }
       ]
     });
@@ -1160,8 +1207,7 @@ async function executeStandaloneAutoSendBcc(batch, bccEmails, subject, finalBody
           expectedSubject: subject,
           expectedBody: finalBody,
           confidentialMode: Boolean(settings.enableConfidentialMode),
-          confidentialExpiration: settings.confidentialExpiration || '1w',
-          confidentialCoords: settings.enableConfidentialCoordsOverride ? (settings.confidentialCoordinates || null) : null
+          confidentialCoords: settings.enableConfidentialMode ? (settings.confidentialCoordinates || null) : null
         }
       ]
     });
@@ -1328,308 +1374,66 @@ async function injectedGmailSendScript(params) {
     element.dispatchEvent(new MouseEvent('click', opts));
   }
 
-  async function applyConfidentialMode(container, requestedExpiration, coordsConfig) {
+  async function applyConfidentialMode(coordsConfig) {
     try {
-      const root = container || document;
-
-      // 1. If custom coordinates override is enabled and Point 1 is set, execute custom coordinate sequence
-      if (coordsConfig && coordsConfig.point1) {
-        console.log('[Confidential] Using custom coordinates override:', coordsConfig);
-        function clickAtPoint(x, y) {
-          const el = document.elementFromPoint(x, y) || document.body;
-          const opts = {
-            bubbles: true,
-            cancelable: true,
-            view: window,
-            clientX: x,
-            clientY: y,
-            screenX: x,
-            screenY: y,
-            button: 0,
-            buttons: 1
-          };
-          el.dispatchEvent(new PointerEvent('pointerdown', opts));
-          el.dispatchEvent(new MouseEvent('mousedown', opts));
-          el.dispatchEvent(new PointerEvent('pointerup', opts));
-          el.dispatchEvent(new MouseEvent('mouseup', opts));
-          el.dispatchEvent(new MouseEvent('click', opts));
-        }
-
-        const is3Point = coordsConfig.mode === '3point' || Boolean(coordsConfig.point3);
-        const delay1 = coordsConfig.delay1Ms || coordsConfig.delayMs || 350;
-        const delay2 = coordsConfig.delay2Ms || 400;
-
-        if (is3Point) {
-          // 3-Point Mode: 3-Dot Menu -> Confidential Item -> Save Button
-          clickAtPoint(coordsConfig.point1.x, coordsConfig.point1.y);
-          await localSleep(delay1);
-
-          if (coordsConfig.point2) {
-            clickAtPoint(coordsConfig.point2.x, coordsConfig.point2.y);
-            await localSleep(delay2);
-          }
-
-          if (coordsConfig.point3) {
-            clickAtPoint(coordsConfig.point3.x, coordsConfig.point3.y);
-            await localSleep(300);
-          }
-        } else {
-          // 2-Point Mode: Direct Toolbar Button -> Save Button
-          clickAtPoint(coordsConfig.point1.x, coordsConfig.point1.y);
-          await localSleep(delay1);
-
-          if (coordsConfig.point2) {
-            clickAtPoint(coordsConfig.point2.x, coordsConfig.point2.y);
-            await localSleep(300);
-          }
-        }
-
-        // If a Confidential dialog is still open with a Save button, ensure Save is clicked as fallback
-        const confDialog = findOpenConfidentialDialog();
-        if (confDialog) {
-          const saveBtn = findSaveBtn(confDialog);
-          if (saveBtn && saveBtn.offsetWidth > 0) {
-            dispatchRealisticClick(saveBtn);
-            await localSleep(250);
-          }
-        }
-        return true;
-      }
-
-      // 2. Check if Confidential Mode is ALREADY active in the compose box
-      const existingBanner = root.querySelector(
-        'div[aria-label*="Confidential" i], div.a45, div.a46, tr.a45, [data-tooltip*="Confidential" i] .a45'
-      ) || (function () {
-        const candidates = root.querySelectorAll('div, span, p');
-        for (const el of candidates) {
-          const txt = (el.textContent || '').toLowerCase();
-          if (txt.includes('confidential mode') || (txt.includes('expires') && txt.includes('forward'))) {
-            return el;
-          }
-        }
-        return null;
-      })();
-
-      if (existingBanner) {
-        console.log('[Confidential] Confidential mode is already active for this draft.');
-        return true;
-      }
-
-      // 3. Automated Detection: First check visible direct button in compose toolbar
-      function findConfidentialBtn() {
-        const tooltipBtn = root.querySelector(
-          'div[role="button"][data-tooltip*="confidential" i], div[data-tooltip*="confidential" i], button[data-tooltip*="confidential" i]'
-        );
-        if (tooltipBtn) return tooltipBtn;
-
-        const ariaBtn = root.querySelector(
-          'div[role="button"][aria-label*="confidential" i], div[aria-label*="confidential" i], button[aria-label*="confidential" i]'
-        );
-        if (ariaBtn) return ariaBtn;
-
-        const cmdBtn = root.querySelector(
-          '[command*="confidential" i], [data-action*="confidential" i]'
-        );
-        if (cmdBtn) return cmdBtn;
-
-        const toolbar = root.querySelector('.btC, .gU, tr.btC, div[role="toolbar"]') || root;
-        const allButtons = toolbar.querySelectorAll('div[role="button"], button');
-        for (const btn of allButtons) {
-          const label = (
-            btn.getAttribute('aria-label') ||
-            btn.getAttribute('data-tooltip') ||
-            btn.getAttribute('title') ||
-            ''
-          ).toLowerCase();
-          if (
-            label.includes('confidential') ||
-            label.includes('confidentiel') ||
-            label.includes('vertraulich') ||
-            label.includes('confidencial')
-          ) {
-            return btn;
-          }
-        }
-        return null;
-      }
-
-      function findMoreOptionsBtn() {
-        const toolbar = root.querySelector('.btC, .gU, tr.btC, div[role="toolbar"]') || root;
-        const selectors = [
-          'div[role="button"][data-tooltip*="More options" i]',
-          'div[role="button"][aria-label*="More options" i]',
-          'div[data-tooltip*="More options" i]',
-          'div[aria-label*="More options" i]',
-          'div[role="button"][data-tooltip*="options" i]',
-          'div[role="button"][aria-label*="options" i]',
-          'div[role="button"][data-tooltip*="Plus d\'options" i]',
-          'div[role="button"][data-tooltip*="Weitere Optionen" i]',
-          'div[role="button"][data-tooltip*="Más opciones" i]',
-          '.J-JN-M-I.J-J5-Ji',
-          '.XP.M9'
-        ];
-        for (const sel of selectors) {
-          const el = toolbar.querySelector(sel);
-          if (el && el.offsetWidth > 0) return el;
-        }
-        const btns = toolbar.querySelectorAll('div[role="button"], button');
-        for (const b of btns) {
-          const tip = (b.getAttribute('data-tooltip') || b.getAttribute('aria-label') || b.getAttribute('title') || '').toLowerCase();
-          if (tip.includes('more') || tip.includes('option') || tip.includes('plus')) {
-            if (b.offsetWidth > 0) return b;
-          }
-        }
-        return null;
-      }
-
-      let confBtn = findConfidentialBtn();
-
-      // If direct button is NOT found or hidden (e.g. side panel / narrow viewport)
-      if (!confBtn || confBtn.offsetWidth === 0) {
-        console.log('[Confidential] Direct button not visible on toolbar, checking 3-dot More Options menu...');
-        const moreBtn = findMoreOptionsBtn();
-        if (moreBtn) {
-          dispatchRealisticClick(moreBtn);
-          await localSleep(250);
-
-          // Find confidential menuitem in open menus
-          const openMenus = document.querySelectorAll('div[role="menu"], div.J-M, div.aF2');
-          let menuItem = null;
-          for (const m of openMenus) {
-            if (m.offsetWidth === 0) continue;
-            const items = m.querySelectorAll('div[role="menuitem"], div.J-N, div.J-N-Jz');
-            for (const item of items) {
-              const txt = (item.textContent || item.getAttribute('aria-label') || '').toLowerCase();
-              if (
-                txt.includes('confidential') ||
-                txt.includes('confidentiel') ||
-                txt.includes('vertraulich') ||
-                txt.includes('confidencial')
-              ) {
-                menuItem = item;
-                break;
-              }
-            }
-            if (menuItem) break;
-          }
-
-          if (menuItem) {
-            console.log('[Confidential] Found Confidential item in 3-dot menu, clicking...');
-            dispatchRealisticClick(menuItem);
-            await localSleep(250);
-          } else {
-            console.warn('[Confidential] Could not locate Confidential option in 3-dot menu.');
-          }
-        } else {
-          console.warn('[Confidential] Neither Confidential button nor 3-dot menu found on compose toolbar.');
-        }
-      } else {
-        dispatchRealisticClick(confBtn);
-        await localSleep(250);
-      }
-
-      // 4. Wait for the Confidential Mode dialog to appear
-      function findOpenConfidentialDialog() {
-        const dialogs = document.querySelectorAll('div[role="dialog"], div.Kj-JD');
-        for (const d of dialogs) {
-          if (d.offsetWidth === 0) continue;
-          const text = (d.textContent || '').toLowerCase();
-          const aria = (d.getAttribute('aria-label') || '').toLowerCase();
-          if (
-            text.includes('confidential') ||
-            aria.includes('confidential') ||
-            text.includes('set expiration') ||
-            text.includes('sms passcode')
-          ) {
-            return d;
-          }
-        }
-        return null;
-      }
-
-      const dialogStartTime = Date.now();
-      let confDialog = null;
-
-      while (Date.now() - dialogStartTime < 3500) {
-        confDialog = findOpenConfidentialDialog();
-        if (confDialog) break;
-        await localSleep(80);
-      }
-
-      if (!confDialog) {
-        console.warn('[Confidential] Confidential mode dialog did not open within timeout.');
+      if (!coordsConfig || !coordsConfig.point1) {
+        console.warn('[Confidential] Confidential mode enabled, but click coordinates are not calibrated.');
         return false;
       }
 
-      // 5. Select expiration timeframe if requested
-      if (requestedExpiration && requestedExpiration !== 'default') {
-        try {
-          const dropdown = confDialog.querySelector('div[role="listbox"], select, div[aria-haspopup="listbox"]');
-          if (dropdown) {
-            if (dropdown.tagName === 'SELECT') {
-              const opts = Array.from(dropdown.options);
-              const match = opts.find((o) => o.value.includes(requestedExpiration) || o.text.toLowerCase().includes(requestedExpiration));
-              if (match) {
-                dropdown.value = match.value;
-                dropdown.dispatchEvent(new Event('change', { bubbles: true }));
-              }
-            } else {
-              dispatchRealisticClick(dropdown);
-              await localSleep(150);
-              const menuItems = document.querySelectorAll('div[role="option"], div.J-N');
-              for (const item of menuItems) {
-                const itemText = (item.textContent || '').toLowerCase();
-                let targetWord = '1 week';
-                if (requestedExpiration === '1d') targetWord = '1 day';
-                else if (requestedExpiration === '1w') targetWord = '1 week';
-                else if (requestedExpiration === '1m') targetWord = '1 month';
-                else if (requestedExpiration === '3m') targetWord = '3 months';
-                else if (requestedExpiration === '5y') targetWord = '5 years';
-
-                if (itemText.includes(targetWord)) {
-                  dispatchRealisticClick(item);
-                  await localSleep(100);
-                  break;
-                }
-              }
-            }
-          }
-        } catch (optErr) {
-          console.warn('[Confidential] Could not customize expiration option:', optErr);
-        }
+      console.log('[Confidential] Executing calibrated coordinate automation:', coordsConfig);
+      function clickAtPoint(x, y) {
+        const el = document.elementFromPoint(x, y) || document.body;
+        const opts = {
+          bubbles: true,
+          cancelable: true,
+          view: window,
+          clientX: x,
+          clientY: y,
+          screenX: x,
+          screenY: y,
+          button: 0,
+          buttons: 1
+        };
+        el.dispatchEvent(new PointerEvent('pointerdown', opts));
+        el.dispatchEvent(new MouseEvent('mousedown', opts));
+        el.dispatchEvent(new PointerEvent('pointerup', opts));
+        el.dispatchEvent(new MouseEvent('mouseup', opts));
+        el.dispatchEvent(new MouseEvent('click', opts));
       }
 
-      // 6. Find and click Save button in dialog
-      function findSaveBtn(dlg) {
-        if (!dlg) return null;
-        const namedBtn = dlg.querySelector('button[name="save"], button[name="ok"], div[name="save"], div[name="ok"]');
-        if (namedBtn) return namedBtn;
+      const is3Point = coordsConfig.mode === '3point' || Boolean(coordsConfig.point3);
+      const delay1 = coordsConfig.delay1Ms || coordsConfig.delayMs || 350;
+      const delay2 = coordsConfig.delay2Ms || 400;
 
-        const allBtns = dlg.querySelectorAll('div[role="button"], button');
-        for (const b of allBtns) {
-          const txt = (b.textContent || b.getAttribute('aria-label') || '').trim().toLowerCase();
-          if (txt === 'save' || txt === 'enregistrer' || txt === 'speichern' || txt === 'guardar' || txt.startsWith('save')) {
-            return b;
-          }
+      if (is3Point) {
+        // 3-Point Mode: Point 1 (3-Dot) -> Point 2 (Confidential) -> Point 3 (Save)
+        clickAtPoint(coordsConfig.point1.x, coordsConfig.point1.y);
+        await localSleep(delay1);
+
+        if (coordsConfig.point2) {
+          clickAtPoint(coordsConfig.point2.x, coordsConfig.point2.y);
+          await localSleep(delay2);
         }
 
-        const primaryBtn = dlg.querySelector('.J-Ke-I.T-I-J3, button.btn-primary, button[type="submit"]');
-        if (primaryBtn) return primaryBtn;
-
-        return null;
-      }
-
-      const saveBtn = findSaveBtn(confDialog);
-      if (saveBtn) {
-        dispatchRealisticClick(saveBtn);
-        await localSleep(250);
+        if (coordsConfig.point3) {
+          clickAtPoint(coordsConfig.point3.x, coordsConfig.point3.y);
+          await localSleep(300);
+        }
       } else {
-        console.warn('[Confidential] Save button not found in Confidential Mode dialog');
+        // 2-Point Mode: Point 1 (Direct Lock Icon) -> Point 2 (Save)
+        clickAtPoint(coordsConfig.point1.x, coordsConfig.point1.y);
+        await localSleep(delay1);
+
+        if (coordsConfig.point2) {
+          clickAtPoint(coordsConfig.point2.x, coordsConfig.point2.y);
+          await localSleep(300);
+        }
       }
 
       return true;
     } catch (err) {
-      console.warn('[Confidential] Error applying confidential mode:', err);
+      console.warn('[Confidential] Error executing coordinate confidential mode:', err);
       return false;
     }
   }
@@ -1802,10 +1606,10 @@ async function injectedGmailSendScript(params) {
     console.warn('Field fallback check warning:', fieldCheckErr);
   }
 
-  // 4.5. If Confidential Mode is enabled, toggle confidential mode before sending
+  // 4.5. If Confidential Mode is enabled, toggle confidential mode via calibrated coordinates before sending
   if (confidentialMode) {
     try {
-      await applyConfidentialMode(document, confidentialExpiration, confidentialCoords);
+      await applyConfidentialMode(confidentialCoords);
       sendButton = findSendButton() || sendButton;
     } catch (confErr) {
       console.warn('Confidential mode toggle warning:', confErr);
@@ -1966,13 +1770,13 @@ async function handleInPageCompose(lead) {
       func: injectedInPageComposeScript,
       args: [
         {
-          email: lead.email,
+          email: lead.email || null,
+          bccEmails: Array.isArray(lead.bccEmails) ? lead.bccEmails : null,
           subject: lead.subject,
           body: finalBody,
           autoSend: false,
           confidentialMode: Boolean(settings.enableConfidentialMode),
-          confidentialExpiration: settings.confidentialExpiration || '1w',
-          confidentialCoords: settings.enableConfidentialCoordsOverride ? (settings.confidentialCoordinates || null) : null
+          confidentialCoords: settings.enableConfidentialMode ? (settings.confidentialCoordinates || null) : null
         }
       ]
     });
@@ -2053,308 +1857,66 @@ async function injectedInPageComposeScript(leadData) {
     element.dispatchEvent(new MouseEvent('click', opts));
   }
 
-  async function applyConfidentialMode(container, requestedExpiration, coordsConfig) {
+  async function applyConfidentialMode(coordsConfig) {
     try {
-      const root = container || document;
-
-      // 1. If custom coordinates override is enabled and Point 1 is set, execute custom coordinate sequence
-      if (coordsConfig && coordsConfig.point1) {
-        console.log('[Confidential] Using custom coordinates override:', coordsConfig);
-        function clickAtPoint(x, y) {
-          const el = document.elementFromPoint(x, y) || document.body;
-          const opts = {
-            bubbles: true,
-            cancelable: true,
-            view: window,
-            clientX: x,
-            clientY: y,
-            screenX: x,
-            screenY: y,
-            button: 0,
-            buttons: 1
-          };
-          el.dispatchEvent(new PointerEvent('pointerdown', opts));
-          el.dispatchEvent(new MouseEvent('mousedown', opts));
-          el.dispatchEvent(new PointerEvent('pointerup', opts));
-          el.dispatchEvent(new MouseEvent('mouseup', opts));
-          el.dispatchEvent(new MouseEvent('click', opts));
-        }
-
-        const is3Point = coordsConfig.mode === '3point' || Boolean(coordsConfig.point3);
-        const delay1 = coordsConfig.delay1Ms || coordsConfig.delayMs || 350;
-        const delay2 = coordsConfig.delay2Ms || 400;
-
-        if (is3Point) {
-          // 3-Point Mode: 3-Dot Menu -> Confidential Item -> Save Button
-          clickAtPoint(coordsConfig.point1.x, coordsConfig.point1.y);
-          await localSleep(delay1);
-
-          if (coordsConfig.point2) {
-            clickAtPoint(coordsConfig.point2.x, coordsConfig.point2.y);
-            await localSleep(delay2);
-          }
-
-          if (coordsConfig.point3) {
-            clickAtPoint(coordsConfig.point3.x, coordsConfig.point3.y);
-            await localSleep(300);
-          }
-        } else {
-          // 2-Point Mode: Direct Toolbar Button -> Save Button
-          clickAtPoint(coordsConfig.point1.x, coordsConfig.point1.y);
-          await localSleep(delay1);
-
-          if (coordsConfig.point2) {
-            clickAtPoint(coordsConfig.point2.x, coordsConfig.point2.y);
-            await localSleep(300);
-          }
-        }
-
-        // If a Confidential dialog is still open with a Save button, ensure Save is clicked as fallback
-        const confDialog = findOpenConfidentialDialog();
-        if (confDialog) {
-          const saveBtn = findSaveBtn(confDialog);
-          if (saveBtn && saveBtn.offsetWidth > 0) {
-            dispatchRealisticClick(saveBtn);
-            await localSleep(250);
-          }
-        }
-        return true;
-      }
-
-      // 2. Check if Confidential Mode is ALREADY active in the compose box
-      const existingBanner = root.querySelector(
-        'div[aria-label*="Confidential" i], div.a45, div.a46, tr.a45, [data-tooltip*="Confidential" i] .a45'
-      ) || (function () {
-        const candidates = root.querySelectorAll('div, span, p');
-        for (const el of candidates) {
-          const txt = (el.textContent || '').toLowerCase();
-          if (txt.includes('confidential mode') || (txt.includes('expires') && txt.includes('forward'))) {
-            return el;
-          }
-        }
-        return null;
-      })();
-
-      if (existingBanner) {
-        console.log('[Confidential] Confidential mode is already active for this draft.');
-        return true;
-      }
-
-      // 3. Automated Detection: First check visible direct button in compose toolbar
-      function findConfidentialBtn() {
-        const tooltipBtn = root.querySelector(
-          'div[role="button"][data-tooltip*="confidential" i], div[data-tooltip*="confidential" i], button[data-tooltip*="confidential" i]'
-        );
-        if (tooltipBtn) return tooltipBtn;
-
-        const ariaBtn = root.querySelector(
-          'div[role="button"][aria-label*="confidential" i], div[aria-label*="confidential" i], button[aria-label*="confidential" i]'
-        );
-        if (ariaBtn) return ariaBtn;
-
-        const cmdBtn = root.querySelector(
-          '[command*="confidential" i], [data-action*="confidential" i]'
-        );
-        if (cmdBtn) return cmdBtn;
-
-        const toolbar = root.querySelector('.btC, .gU, tr.btC, div[role="toolbar"]') || root;
-        const allButtons = toolbar.querySelectorAll('div[role="button"], button');
-        for (const btn of allButtons) {
-          const label = (
-            btn.getAttribute('aria-label') ||
-            btn.getAttribute('data-tooltip') ||
-            btn.getAttribute('title') ||
-            ''
-          ).toLowerCase();
-          if (
-            label.includes('confidential') ||
-            label.includes('confidentiel') ||
-            label.includes('vertraulich') ||
-            label.includes('confidencial')
-          ) {
-            return btn;
-          }
-        }
-        return null;
-      }
-
-      function findMoreOptionsBtn() {
-        const toolbar = root.querySelector('.btC, .gU, tr.btC, div[role="toolbar"]') || root;
-        const selectors = [
-          'div[role="button"][data-tooltip*="More options" i]',
-          'div[role="button"][aria-label*="More options" i]',
-          'div[data-tooltip*="More options" i]',
-          'div[aria-label*="More options" i]',
-          'div[role="button"][data-tooltip*="options" i]',
-          'div[role="button"][aria-label*="options" i]',
-          'div[role="button"][data-tooltip*="Plus d\'options" i]',
-          'div[role="button"][data-tooltip*="Weitere Optionen" i]',
-          'div[role="button"][data-tooltip*="Más opciones" i]',
-          '.J-JN-M-I.J-J5-Ji',
-          '.XP.M9'
-        ];
-        for (const sel of selectors) {
-          const el = toolbar.querySelector(sel);
-          if (el && el.offsetWidth > 0) return el;
-        }
-        const btns = toolbar.querySelectorAll('div[role="button"], button');
-        for (const b of btns) {
-          const tip = (b.getAttribute('data-tooltip') || b.getAttribute('aria-label') || b.getAttribute('title') || '').toLowerCase();
-          if (tip.includes('more') || tip.includes('option') || tip.includes('plus')) {
-            if (b.offsetWidth > 0) return b;
-          }
-        }
-        return null;
-      }
-
-      let confBtn = findConfidentialBtn();
-
-      // If direct button is NOT found or hidden (e.g. side panel / narrow viewport)
-      if (!confBtn || confBtn.offsetWidth === 0) {
-        console.log('[Confidential] Direct button not visible on toolbar, checking 3-dot More Options menu...');
-        const moreBtn = findMoreOptionsBtn();
-        if (moreBtn) {
-          dispatchRealisticClick(moreBtn);
-          await localSleep(250);
-
-          // Find confidential menuitem in open menus
-          const openMenus = document.querySelectorAll('div[role="menu"], div.J-M, div.aF2');
-          let menuItem = null;
-          for (const m of openMenus) {
-            if (m.offsetWidth === 0) continue;
-            const items = m.querySelectorAll('div[role="menuitem"], div.J-N, div.J-N-Jz');
-            for (const item of items) {
-              const txt = (item.textContent || item.getAttribute('aria-label') || '').toLowerCase();
-              if (
-                txt.includes('confidential') ||
-                txt.includes('confidentiel') ||
-                txt.includes('vertraulich') ||
-                txt.includes('confidencial')
-              ) {
-                menuItem = item;
-                break;
-              }
-            }
-            if (menuItem) break;
-          }
-
-          if (menuItem) {
-            console.log('[Confidential] Found Confidential item in 3-dot menu, clicking...');
-            dispatchRealisticClick(menuItem);
-            await localSleep(250);
-          } else {
-            console.warn('[Confidential] Could not locate Confidential option in 3-dot menu.');
-          }
-        } else {
-          console.warn('[Confidential] Neither Confidential button nor 3-dot menu found on compose toolbar.');
-        }
-      } else {
-        dispatchRealisticClick(confBtn);
-        await localSleep(250);
-      }
-
-      // 4. Wait for the Confidential Mode dialog to appear
-      function findOpenConfidentialDialog() {
-        const dialogs = document.querySelectorAll('div[role="dialog"], div.Kj-JD');
-        for (const d of dialogs) {
-          if (d.offsetWidth === 0) continue;
-          const text = (d.textContent || '').toLowerCase();
-          const aria = (d.getAttribute('aria-label') || '').toLowerCase();
-          if (
-            text.includes('confidential') ||
-            aria.includes('confidential') ||
-            text.includes('set expiration') ||
-            text.includes('sms passcode')
-          ) {
-            return d;
-          }
-        }
-        return null;
-      }
-
-      const dialogStartTime = Date.now();
-      let confDialog = null;
-
-      while (Date.now() - dialogStartTime < 3500) {
-        confDialog = findOpenConfidentialDialog();
-        if (confDialog) break;
-        await localSleep(80);
-      }
-
-      if (!confDialog) {
-        console.warn('[Confidential] Confidential mode dialog did not open within timeout.');
+      if (!coordsConfig || !coordsConfig.point1) {
+        console.warn('[Confidential] Confidential mode enabled, but click coordinates are not calibrated.');
         return false;
       }
 
-      // 5. Select expiration timeframe if requested
-      if (requestedExpiration && requestedExpiration !== 'default') {
-        try {
-          const dropdown = confDialog.querySelector('div[role="listbox"], select, div[aria-haspopup="listbox"]');
-          if (dropdown) {
-            if (dropdown.tagName === 'SELECT') {
-              const opts = Array.from(dropdown.options);
-              const match = opts.find((o) => o.value.includes(requestedExpiration) || o.text.toLowerCase().includes(requestedExpiration));
-              if (match) {
-                dropdown.value = match.value;
-                dropdown.dispatchEvent(new Event('change', { bubbles: true }));
-              }
-            } else {
-              dispatchRealisticClick(dropdown);
-              await localSleep(150);
-              const menuItems = document.querySelectorAll('div[role="option"], div.J-N');
-              for (const item of menuItems) {
-                const itemText = (item.textContent || '').toLowerCase();
-                let targetWord = '1 week';
-                if (requestedExpiration === '1d') targetWord = '1 day';
-                else if (requestedExpiration === '1w') targetWord = '1 week';
-                else if (requestedExpiration === '1m') targetWord = '1 month';
-                else if (requestedExpiration === '3m') targetWord = '3 months';
-                else if (requestedExpiration === '5y') targetWord = '5 years';
-
-                if (itemText.includes(targetWord)) {
-                  dispatchRealisticClick(item);
-                  await localSleep(100);
-                  break;
-                }
-              }
-            }
-          }
-        } catch (optErr) {
-          console.warn('[Confidential] Could not customize expiration option:', optErr);
-        }
+      console.log('[Confidential] Executing calibrated coordinate automation:', coordsConfig);
+      function clickAtPoint(x, y) {
+        const el = document.elementFromPoint(x, y) || document.body;
+        const opts = {
+          bubbles: true,
+          cancelable: true,
+          view: window,
+          clientX: x,
+          clientY: y,
+          screenX: x,
+          screenY: y,
+          button: 0,
+          buttons: 1
+        };
+        el.dispatchEvent(new PointerEvent('pointerdown', opts));
+        el.dispatchEvent(new MouseEvent('mousedown', opts));
+        el.dispatchEvent(new PointerEvent('pointerup', opts));
+        el.dispatchEvent(new MouseEvent('mouseup', opts));
+        el.dispatchEvent(new MouseEvent('click', opts));
       }
 
-      // 6. Find and click Save button in dialog
-      function findSaveBtn(dlg) {
-        if (!dlg) return null;
-        const namedBtn = dlg.querySelector('button[name="save"], button[name="ok"], div[name="save"], div[name="ok"]');
-        if (namedBtn) return namedBtn;
+      const is3Point = coordsConfig.mode === '3point' || Boolean(coordsConfig.point3);
+      const delay1 = coordsConfig.delay1Ms || coordsConfig.delayMs || 350;
+      const delay2 = coordsConfig.delay2Ms || 400;
 
-        const allBtns = dlg.querySelectorAll('div[role="button"], button');
-        for (const b of allBtns) {
-          const txt = (b.textContent || b.getAttribute('aria-label') || '').trim().toLowerCase();
-          if (txt === 'save' || txt === 'enregistrer' || txt === 'speichern' || txt === 'guardar' || txt.startsWith('save')) {
-            return b;
-          }
+      if (is3Point) {
+        // 3-Point Mode: Point 1 (3-Dot) -> Point 2 (Confidential) -> Point 3 (Save)
+        clickAtPoint(coordsConfig.point1.x, coordsConfig.point1.y);
+        await localSleep(delay1);
+
+        if (coordsConfig.point2) {
+          clickAtPoint(coordsConfig.point2.x, coordsConfig.point2.y);
+          await localSleep(delay2);
         }
 
-        const primaryBtn = dlg.querySelector('.J-Ke-I.T-I-J3, button.btn-primary, button[type="submit"]');
-        if (primaryBtn) return primaryBtn;
-
-        return null;
-      }
-
-      const saveBtn = findSaveBtn(confDialog);
-      if (saveBtn) {
-        dispatchRealisticClick(saveBtn);
-        await localSleep(250);
+        if (coordsConfig.point3) {
+          clickAtPoint(coordsConfig.point3.x, coordsConfig.point3.y);
+          await localSleep(300);
+        }
       } else {
-        console.warn('[Confidential] Save button not found in Confidential Mode dialog');
+        // 2-Point Mode: Point 1 (Direct Lock Icon) -> Point 2 (Save)
+        clickAtPoint(coordsConfig.point1.x, coordsConfig.point1.y);
+        await localSleep(delay1);
+
+        if (coordsConfig.point2) {
+          clickAtPoint(coordsConfig.point2.x, coordsConfig.point2.y);
+          await localSleep(300);
+        }
       }
 
       return true;
     } catch (err) {
-      console.warn('[Confidential] Error applying confidential mode:', err);
+      console.warn('[Confidential] Error executing coordinate confidential mode:', err);
       return false;
     }
   }
@@ -2560,10 +2122,10 @@ async function injectedInPageComposeScript(leadData) {
     console.warn('Error filling body:', err);
   }
 
-  // 4.5. Step 3b: If Confidential Mode is enabled, toggle confidential mode before sending or finishing
+  // 4.5. Step 3b: If Confidential Mode is enabled, toggle confidential mode via calibrated coordinates
   if (confidentialMode) {
     try {
-      await applyConfidentialMode(composeBox, confidentialExpiration, confidentialCoords);
+      await applyConfidentialMode(confidentialCoords);
     } catch (confErr) {
       console.warn('Confidential mode toggle warning:', confErr);
     }

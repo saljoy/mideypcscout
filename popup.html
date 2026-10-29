@@ -809,15 +809,25 @@
       <!-- BCC Batch Options (Visible when BCC toggle is ON) -->
       <div id="bccSettingsContent"
         style="display: none; margin-top: 6px; padding: 8px 10px; background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm);">
-        <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
-          <div>
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;">
+          <div style="flex: 1; min-width: 140px;">
             <label class="setting-label" for="bccBatchSizeInput" style="font-size: 11.5px; font-weight: 600;">Number to
               send at a go:</label>
             <div style="font-size: 10px; color: var(--text-dim); margin-top: 2px;">Groups this many leads into BCC per
               email</div>
           </div>
-          <input type="number" id="bccBatchSizeInput" class="setting-input"
-            style="width: 65px; text-align: center; font-weight: 600;" min="2" max="100" value="10">
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <input type="number" id="bccBatchSizeInput" class="setting-input"
+              style="width: 55px; text-align: center; font-weight: 700; height: 26px;" min="2" max="100" value="10">
+            <button type="button" id="rearrangeBccQueueBtn" class="btn btn-primary btn-xs" style="padding: 4px 10px; font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: 4px;" title="Rearrange and compile the lead queue into BCC batches">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+                <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
+                <line x1="12" y1="22.08" x2="12" y2="12"/>
+              </svg>
+              <span>Rearrange</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -829,7 +839,7 @@
             <span id="confidentialModeBadge" class="brand-tag">Off</span>
           </div>
           <div id="confidentialModeDesc" class="send-mode-desc">
-            Set email expiration date & prevent recipients from forwarding, copying, or printing.
+            Automates Gmail Confidential Mode using calibrated click coordinates.
           </div>
         </div>
         <label class="switch-toggle" title="Toggle Gmail Confidential Mode on/off for sent emails">
@@ -838,91 +848,71 @@
         </label>
       </div>
 
-      <!-- Confidential Mode Options (Visible when toggle is ON) -->
+      <!-- Confidential Mode Coordinate Options (Visible when toggle is ON) -->
       <div id="confidentialSettingsContent"
-        style="display: none; margin-top: 6px; padding: 8px 10px; background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm);">
-        <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;">
-          <div style="flex: 1; min-width: 140px;">
-            <label class="setting-label" for="confidentialExpirationSelect" style="font-size: 11.5px; font-weight: 600;">Expiration Period:</label>
-            <select id="confidentialExpirationSelect" class="setting-input" style="width: 100%; margin-top: 3px;">
-              <option value="1d">Expires in 1 day</option>
-              <option value="1w" selected>Expires in 1 week (Recommended)</option>
-              <option value="1m">Expires in 1 month</option>
-              <option value="3m">Expires in 3 months</option>
-              <option value="5y">Expires in 5 years</option>
-            </select>
-          </div>
-          <div style="font-size: 10.5px; color: var(--text-muted); margin-top: 4px; line-height: 1.35; width: 100%;">
-            🔒 Emails sent with Confidential Mode automatically expire on Gmail's servers and block recipient downloading, copying, or forwarding.
-          </div>
+        style="display: none; margin-top: 6px; padding: 9px 10px; background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm);">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+          <span style="font-size: 11.5px; font-weight: 600; color: var(--text-main); display: flex; align-items: center; gap: 5px;">
+            <span>🎯 Coordinate Automation Calibrator</span>
+          </span>
+          <span class="badge" style="font-size: 9.5px; padding: 2px 6px; background: rgba(79, 70, 229, 0.15); color: #818cf8; border-radius: 4px;">Coordinate Mode</span>
         </div>
+        <p style="font-size: 10.5px; color: var(--text-muted); margin-bottom: 8px; line-height: 1.4;">
+          Calibrate the exact click points on your Gmail window to automate turning on Confidential Mode without relying on brittle DOM selectors.
+        </p>
 
-        <!-- Coordinate Selector & Calibrator Box (Optional Fallback for Side Panel & Custom Themes) -->
-        <div class="confidential-coords-box" style="margin-top: 10px; padding: 9px 10px; border-radius: var(--radius-sm); background: var(--bg-input); border: 1px solid var(--border-subtle);">
-          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 5px;">
-            <label style="font-size: 11.5px; font-weight: 600; display: flex; align-items: center; gap: 6px; cursor: pointer; color: var(--text-main);">
-              <input type="checkbox" id="enableConfidentialCoordsOverride">
-              <span>Use Custom Coordinates (Calibrator Override)</span>
-            </label>
-            <span class="badge" style="font-size: 9.5px; padding: 2px 6px; background: rgba(79, 70, 229, 0.15); color: #818cf8; border-radius: 4px;">Side Panel Fallback</span>
+        <div id="confidentialCoordsDetails">
+          <!-- Mode Switcher: 3-Point (Side Panel / 3-Dot) vs 2-Point (Full Screen / Direct) -->
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; background: var(--bg-input); padding: 5px 8px; border-radius: var(--radius-sm); border: 1px solid var(--border-subtle);">
+            <span style="font-size: 10.5px; font-weight: 600; color: var(--text-main);">Calibration Mode:</span>
+            <div style="display: flex; gap: 4px;">
+              <button type="button" id="coordsMode3PointBtn" class="btn btn-primary btn-xs" style="padding: 2px 8px; font-size: 10px;">3-Point (3-Dot Menu)</button>
+              <button type="button" id="coordsMode2PointBtn" class="btn btn-secondary btn-xs" style="padding: 2px 8px; font-size: 10px;">2-Point (Full Screen)</button>
+            </div>
           </div>
-          <p style="font-size: 10.5px; color: var(--text-muted); margin-bottom: 8px; line-height: 1.4;">
-            If Gmail's button is hidden under the 3-dot menu or inside a compressed toolbar in the side panel, calibrate exact click points on your Gmail window.
-          </p>
 
-          <div id="confidentialCoordsDetails" style="display: none;">
-            <!-- Mode Switcher: 3-Point (Side Panel / 3-Dot) vs 2-Point (Full Screen / Direct) -->
-            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; background: var(--bg-surface); padding: 5px 8px; border-radius: var(--radius-sm); border: 1px solid var(--border-subtle);">
-              <span style="font-size: 10.5px; font-weight: 600; color: var(--text-main);">Calibration Mode:</span>
-              <div style="display: flex; gap: 4px;">
-                <button type="button" id="coordsMode3PointBtn" class="btn btn-primary btn-xs" style="padding: 2px 8px; font-size: 10px;">3-Point (3-Dot Menu)</button>
-                <button type="button" id="coordsMode2PointBtn" class="btn btn-secondary btn-xs" style="padding: 2px 8px; font-size: 10px;">2-Point (Full Screen)</button>
+          <div style="display: flex; gap: 6px; align-items: center; margin-bottom: 8px; flex-wrap: wrap;">
+            <button id="pickConfidentialCoordsBtn" class="btn btn-primary btn-xs" type="button" style="display: flex; align-items: center; gap: 4px;">
+              <span>🎯 Calibrate on Gmail</span>
+            </button>
+            <button id="testConfidentialCoordsBtn" class="btn btn-secondary btn-xs" type="button" style="display: flex; align-items: center; gap: 4px;">
+              <span>⚡ Test Clicks</span>
+            </button>
+            <button id="clearConfidentialCoordsBtn" class="btn btn-secondary btn-xs" type="button" style="color: var(--danger);">
+              <span>Reset</span>
+            </button>
+          </div>
+
+          <!-- Coordinate Points Grid (Adapts dynamically between 3-point and 2-point) -->
+          <div id="coordsGridContainer" style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; font-size: 11px; margin-bottom: 8px;">
+            <div id="coordsCardPoint1" style="background: var(--bg-input); padding: 5px 6px; border-radius: 4px; border: 1px solid var(--border-subtle);">
+              <div id="coordsLabelPoint1" style="color: var(--text-dim); font-size: 9.5px; font-weight: 600;">Point 1 (3-Dot):</div>
+              <div id="coordsDisplayPoint1" style="font-family: monospace; color: var(--text-main); font-weight: 700; margin-top: 2px; font-size: 10.5px;">Not Set</div>
+            </div>
+            <div id="coordsCardPoint2" style="background: var(--bg-input); padding: 5px 6px; border-radius: 4px; border: 1px solid var(--border-subtle);">
+              <div id="coordsLabelPoint2" style="color: var(--text-dim); font-size: 9.5px; font-weight: 600;">Point 2 (Confidential):</div>
+              <div id="coordsDisplayPoint2" style="font-family: monospace; color: var(--text-main); font-weight: 700; margin-top: 2px; font-size: 10.5px;">Not Set</div>
+            </div>
+            <div id="coordsCardPoint3" style="background: var(--bg-input); padding: 5px 6px; border-radius: 4px; border: 1px solid var(--border-subtle);">
+              <div id="coordsLabelPoint3" style="color: var(--text-dim); font-size: 9.5px; font-weight: 600;">Point 3 (Save):</div>
+              <div id="coordsDisplayPoint3" style="font-family: monospace; color: var(--text-main); font-weight: 700; margin-top: 2px; font-size: 10.5px;">Not Set</div>
+            </div>
+          </div>
+
+          <!-- Dedicated Timing Intervals for Each Step -->
+          <div style="display: flex; flex-direction: column; gap: 5px; font-size: 10.5px; color: var(--text-muted); background: var(--bg-input); padding: 6px 8px; border-radius: 4px; border: 1px solid var(--border-subtle);">
+            <div id="confidentialCoordsDelay1Container" style="display: flex; justify-content: space-between; align-items: center;">
+              <span id="confidentialCoordsDelay1Label">Interval after Point 1 (open menu):</span>
+              <div style="display: flex; align-items: center; gap: 4px;">
+                <input type="number" id="confidentialCoordsDelay1Input" class="setting-input" style="width: 58px; height: 22px; padding: 2px 4px; text-align: center;" min="100" max="3000" step="50" value="350">
+                <span>ms</span>
               </div>
             </div>
-
-            <div style="display: flex; gap: 6px; align-items: center; margin-bottom: 8px; flex-wrap: wrap;">
-              <button id="pickConfidentialCoordsBtn" class="btn btn-primary btn-xs" type="button" style="display: flex; align-items: center; gap: 4px;">
-                <span>🎯 Calibrate on Gmail</span>
-              </button>
-              <button id="testConfidentialCoordsBtn" class="btn btn-secondary btn-xs" type="button" style="display: flex; align-items: center; gap: 4px;">
-                <span>⚡ Test Clicks</span>
-              </button>
-              <button id="clearConfidentialCoordsBtn" class="btn btn-secondary btn-xs" type="button" style="color: var(--danger);">
-                <span>Reset</span>
-              </button>
-            </div>
-
-            <!-- Coordinate Points Grid (Adapts dynamically between 3-point and 2-point) -->
-            <div id="coordsGridContainer" style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; font-size: 11px; margin-bottom: 8px;">
-              <div id="coordsCardPoint1" style="background: var(--bg-surface); padding: 5px 6px; border-radius: 4px; border: 1px solid var(--border-subtle);">
-                <div id="coordsLabelPoint1" style="color: var(--text-dim); font-size: 9.5px; font-weight: 600;">Point 1 (3-Dot):</div>
-                <div id="coordsDisplayPoint1" style="font-family: monospace; color: var(--text-main); font-weight: 700; margin-top: 2px; font-size: 10.5px;">Not Set</div>
-              </div>
-              <div id="coordsCardPoint2" style="background: var(--bg-surface); padding: 5px 6px; border-radius: 4px; border: 1px solid var(--border-subtle);">
-                <div id="coordsLabelPoint2" style="color: var(--text-dim); font-size: 9.5px; font-weight: 600;">Point 2 (Confidential):</div>
-                <div id="coordsDisplayPoint2" style="font-family: monospace; color: var(--text-main); font-weight: 700; margin-top: 2px; font-size: 10.5px;">Not Set</div>
-              </div>
-              <div id="coordsCardPoint3" style="background: var(--bg-surface); padding: 5px 6px; border-radius: 4px; border: 1px solid var(--border-subtle);">
-                <div id="coordsLabelPoint3" style="color: var(--text-dim); font-size: 9.5px; font-weight: 600;">Point 3 (Save):</div>
-                <div id="coordsDisplayPoint3" style="font-family: monospace; color: var(--text-main); font-weight: 700; margin-top: 2px; font-size: 10.5px;">Not Set</div>
-              </div>
-            </div>
-
-            <!-- Dedicated Timing Intervals for Each Step -->
-            <div style="display: flex; flex-direction: column; gap: 5px; font-size: 10.5px; color: var(--text-muted); background: var(--bg-surface); padding: 6px 8px; border-radius: 4px; border: 1px solid var(--border-subtle);">
-              <div id="confidentialCoordsDelay1Container" style="display: flex; justify-content: space-between; align-items: center;">
-                <span id="confidentialCoordsDelay1Label">Interval after Point 1 (open menu):</span>
-                <div style="display: flex; align-items: center; gap: 4px;">
-                  <input type="number" id="confidentialCoordsDelay1Input" class="setting-input" style="width: 58px; height: 22px; padding: 2px 4px; text-align: center;" min="100" max="3000" step="50" value="350">
-                  <span>ms</span>
-                </div>
-              </div>
-              <div id="confidentialCoordsDelay2Container" style="display: flex; justify-content: space-between; align-items: center;">
-                <span id="confidentialCoordsDelay2Label">Interval after Point 2 (open dialog):</span>
-                <div style="display: flex; align-items: center; gap: 4px;">
-                  <input type="number" id="confidentialCoordsDelay2Input" class="setting-input" style="width: 58px; height: 22px; padding: 2px 4px; text-align: center;" min="100" max="3000" step="50" value="400">
-                  <span>ms</span>
-                </div>
+            <div id="confidentialCoordsDelay2Container" style="display: flex; justify-content: space-between; align-items: center;">
+              <span id="confidentialCoordsDelay2Label">Interval after Point 2 (open dialog):</span>
+              <div style="display: flex; align-items: center; gap: 4px;">
+                <input type="number" id="confidentialCoordsDelay2Input" class="setting-input" style="width: 58px; height: 22px; padding: 2px 4px; text-align: center;" min="100" max="3000" step="50" value="400">
+                <span>ms</span>
               </div>
             </div>
           </div>

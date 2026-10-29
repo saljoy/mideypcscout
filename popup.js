@@ -314,10 +314,12 @@ const sendModeDesc = document.getElementById('sendModeDesc');
 // DOM Elements - BCC Batch Mode
 const enableBccModeInput = document.getElementById('enableBccModeInput');
 const bccBatchSizeInput = document.getElementById('bccBatchSizeInput');
+const rearrangeBccQueueBtn = document.getElementById('rearrangeBccQueueBtn');
 const bccModeCard = document.getElementById('bccModeCard');
 const bccModeBadge = document.getElementById('bccModeBadge');
 const bccModeDesc = document.getElementById('bccModeDesc');
 const bccSettingsContent = document.getElementById('bccSettingsContent');
+const expandedBccBatches = new Set();
 
 // DOM Elements - Gmail Confidential Mode
 const confidentialModeCard = document.getElementById('confidentialModeCard');
@@ -325,8 +327,6 @@ const enableConfidentialModeInput = document.getElementById('enableConfidentialM
 const confidentialModeBadge = document.getElementById('confidentialModeBadge');
 const confidentialModeDesc = document.getElementById('confidentialModeDesc');
 const confidentialSettingsContent = document.getElementById('confidentialSettingsContent');
-const confidentialExpirationSelect = document.getElementById('confidentialExpirationSelect');
-const enableConfidentialCoordsOverride = document.getElementById('enableConfidentialCoordsOverride');
 const confidentialCoordsDetails = document.getElementById('confidentialCoordsDetails');
 const coordsMode3PointBtn = document.getElementById('coordsMode3PointBtn');
 const coordsMode2PointBtn = document.getElementById('coordsMode2PointBtn');
@@ -468,8 +468,7 @@ async function loadInitialState() {
   autoCloseTabInput.checked = currentSettings.autoCloseTab !== false;
   updateSendModeUI(Boolean(currentSettings.inPageAutoSend));
   updateBccModeUI(Boolean(currentSettings.enableBccMode), currentSettings.bccBatchSize || 10);
-  updateConfidentialModeUI(Boolean(currentSettings.enableConfidentialMode), currentSettings.confidentialExpiration || '1w');
-  updateConfidentialCoordsUI(Boolean(currentSettings.enableConfidentialCoordsOverride), currentSettings.confidentialCoordinates);
+  updateConfidentialModeUI(Boolean(currentSettings.enableConfidentialMode), currentSettings.confidentialCoordinates);
 
   enableSignatureCheckbox.checked = currentSettings.enableSignature === true;
   signatureRotationSelect.value = currentSettings.signatureRotationMode || 'sequential';
@@ -630,11 +629,8 @@ function setupStorageListener() {
       if (document.activeElement !== enableBccModeInput && document.activeElement !== bccBatchSizeInput) {
         updateBccModeUI(Boolean(currentSettings.enableBccMode), currentSettings.bccBatchSize || 10);
       }
-      if (document.activeElement !== enableConfidentialModeInput && document.activeElement !== confidentialExpirationSelect) {
-        updateConfidentialModeUI(Boolean(currentSettings.enableConfidentialMode), currentSettings.confidentialExpiration || '1w');
-      }
-      if (changes.settings.newValue?.enableConfidentialCoordsOverride !== undefined || changes.settings.newValue?.confidentialCoordinates !== undefined) {
-        updateConfidentialCoordsUI(Boolean(currentSettings.enableConfidentialCoordsOverride), currentSettings.confidentialCoordinates);
+      if (document.activeElement !== enableConfidentialModeInput) {
+        updateConfidentialModeUI(Boolean(currentSettings.enableConfidentialMode), currentSettings.confidentialCoordinates);
       }
       if (changes.settings.newValue?.keepAwakeDuringQueue !== undefined && autoKeepAwakeOnQueueCheckbox) {
         autoKeepAwakeOnQueueCheckbox.checked = currentSettings.keepAwakeDuringQueue !== false;
@@ -1111,11 +1107,39 @@ function setupEventListeners() {
       };
       updateBccModeUI(enabled, currentSettings.bccBatchSize || 10);
       await chrome.storage.local.set({ settings: currentSettings });
+      renderLeadsList();
       showBanner(
         statusBanner,
         enabled
           ? `BCC Batch Mode enabled (${currentSettings.bccBatchSize || 10} leads at a go).`
           : 'BCC Batch Mode disabled (1-by-1 sending).',
+        'success'
+      );
+    });
+  }
+
+  // BCC Rearrange Queue Button
+  if (rearrangeBccQueueBtn) {
+    rearrangeBccQueueBtn.addEventListener('click', async () => {
+      const rawVal = bccBatchSizeInput ? parseInt(bccBatchSizeInput.value, 10) : 10;
+      const val = Math.max(2, Math.min(100, isNaN(rawVal) ? 10 : rawVal));
+      if (bccBatchSizeInput) bccBatchSizeInput.value = val;
+
+      currentSettings = {
+        ...currentSettings,
+        enableBccMode: true,
+        bccBatchSize: val
+      };
+      if (enableBccModeInput) enableBccModeInput.checked = true;
+      updateBccModeUI(true, val);
+      await chrome.storage.local.set({ settings: currentSettings });
+      renderLeadsList();
+
+      const pendingCount = currentLeads.filter((l) => l.status === 'pending').length;
+      const batchCount = Math.ceil(pendingCount / val);
+      showBanner(
+        statusBanner,
+        `⚡ Queue rearranged! Compiled ${pendingCount} pending lead(s) into ${batchCount} BCC batch(es) of up to ${val} leads each.`,
         'success'
       );
     });
@@ -1132,6 +1156,9 @@ function setupEventListeners() {
       };
       updateBccModeUI(Boolean(currentSettings.enableBccMode), val);
       await chrome.storage.local.set({ settings: currentSettings });
+      if (currentSettings.enableBccMode) {
+        renderLeadsList();
+      }
     });
   }
 
@@ -1143,43 +1170,16 @@ function setupEventListeners() {
         ...currentSettings,
         enableConfidentialMode: enabled
       };
-      updateConfidentialModeUI(enabled, currentSettings.confidentialExpiration || '1w');
+      updateConfidentialModeUI(enabled, currentSettings.confidentialCoordinates);
       await chrome.storage.local.set({ settings: currentSettings });
-      showBanner(
-        statusBanner,
-        enabled
-          ? `🔒 Gmail Confidential Mode enabled (Expires in ${getConfidentialExpirationLabel(currentSettings.confidentialExpiration)}).`
-          : 'Gmail Confidential Mode disabled.',
-        'success'
-      );
-    });
-  }
-
-  // Confidential Expiration Select
-  if (confidentialExpirationSelect) {
-    confidentialExpirationSelect.addEventListener('change', async (e) => {
-      const val = e.target.value || '1w';
-      currentSettings = {
-        ...currentSettings,
-        confidentialExpiration: val
-      };
-      updateConfidentialModeUI(Boolean(currentSettings.enableConfidentialMode), val);
-      await chrome.storage.local.set({ settings: currentSettings });
-    });
-  }
-
-  // Coordinate Calibrator Toggle & Buttons
-  if (enableConfidentialCoordsOverride) {
-    enableConfidentialCoordsOverride.addEventListener('change', async (e) => {
-      const enabled = e.target.checked;
-      currentSettings = {
-        ...currentSettings,
-        enableConfidentialCoordsOverride: enabled
-      };
-      updateConfidentialCoordsUI(enabled, currentSettings.confidentialCoordinates);
-      await chrome.storage.local.set({ settings: currentSettings });
-      if (enabled && (!currentSettings.confidentialCoordinates || !currentSettings.confidentialCoordinates.point1)) {
-        showBanner(statusBanner, 'Custom coordinates enabled. Click "🎯 Calibrate on Gmail" to calibrate click points.', 'info');
+      if (enabled) {
+        if (!currentSettings.confidentialCoordinates || !currentSettings.confidentialCoordinates.point1) {
+          showBanner(statusBanner, '🔒 Confidential Mode enabled! Please click "🎯 Calibrate on Gmail" below to set your click points.', 'info');
+        } else {
+          showBanner(statusBanner, '🔒 Confidential Mode enabled (using calibrated coordinates).', 'success');
+        }
+      } else {
+        showBanner(statusBanner, 'Gmail Confidential Mode disabled.', 'info');
       }
     });
   }
@@ -1190,7 +1190,7 @@ function setupEventListeners() {
         ...(currentSettings.confidentialCoordinates || {}),
         mode: '3point'
       };
-      updateConfidentialCoordsUI(currentSettings.enableConfidentialCoordsOverride, currentSettings.confidentialCoordinates);
+      updateConfidentialCoordsUI(currentSettings.confidentialCoordinates);
       await chrome.storage.local.set({ settings: currentSettings });
       showBanner(statusBanner, 'Switched to 3-Point Calibration Mode (3-Dot Menu -> Confidential Item -> Save Button).', 'info');
     });
@@ -1202,7 +1202,7 @@ function setupEventListeners() {
         ...(currentSettings.confidentialCoordinates || {}),
         mode: '2point'
       };
-      updateConfidentialCoordsUI(currentSettings.enableConfidentialCoordsOverride, currentSettings.confidentialCoordinates);
+      updateConfidentialCoordsUI(currentSettings.confidentialCoordinates);
       await chrome.storage.local.set({ settings: currentSettings });
       showBanner(statusBanner, 'Switched to 2-Point Calibration Mode (Direct Toolbar Button -> Save Button).', 'info');
     });
@@ -1248,7 +1248,7 @@ function setupEventListeners() {
           delay2Ms: 400
         }
       };
-      updateConfidentialCoordsUI(currentSettings.enableConfidentialCoordsOverride, currentSettings.confidentialCoordinates);
+      updateConfidentialCoordsUI(currentSettings.confidentialCoordinates);
       await chrome.storage.local.set({ settings: currentSettings });
       showBanner(statusBanner, 'Custom coordinates reset.', 'info');
     });
@@ -1289,6 +1289,40 @@ function setupEventListeners() {
 
   // Delegated click listener on leadsContainer (Ultra-fast, eliminates hundreds of per-row closures)
   leadsContainer.addEventListener('click', (e) => {
+    // BCC Batch Actions
+    const composeBccBtn = e.target.closest('.compose-bcc-batch-btn');
+    if (composeBccBtn && composeBccBtn.dataset.batchIds) {
+      const ids = composeBccBtn.dataset.batchIds.split(',').filter(Boolean);
+      handleComposeBccBatch(ids);
+      return;
+    }
+
+    const sendBccBtn = e.target.closest('.send-bcc-batch-btn');
+    if (sendBccBtn && sendBccBtn.dataset.batchIds) {
+      const ids = sendBccBtn.dataset.batchIds.split(',').filter(Boolean);
+      handleSendBccBatch(ids);
+      return;
+    }
+
+    const viewBccBodyBtn = e.target.closest('.view-bcc-body-btn');
+    if (viewBccBodyBtn && viewBccBodyBtn.dataset.leadId) {
+      const lead = currentLeads.find((l) => l.id === viewBccBodyBtn.dataset.leadId);
+      if (lead) openPreviewModal(lead);
+      return;
+    }
+
+    const toggleExpandBtn = e.target.closest('.toggle-bcc-expand-btn');
+    if (toggleExpandBtn && toggleExpandBtn.dataset.batchIndex !== undefined) {
+      const bIdx = parseInt(toggleExpandBtn.dataset.batchIndex, 10);
+      if (expandedBccBatches.has(bIdx)) {
+        expandedBccBatches.delete(bIdx);
+      } else {
+        expandedBccBatches.add(bIdx);
+      }
+      renderLeadsList();
+      return;
+    }
+
     const badgeEl = e.target.closest('.status-toggle-badge');
     if (badgeEl && badgeEl.dataset.id) {
       handleToggleLeadStatus(badgeEl.dataset.id);
@@ -1702,19 +1736,24 @@ function getConfidentialExpirationLabel(expKey) {
 /**
  * Update Gmail Confidential Mode Card UI
  */
-function updateConfidentialModeUI(isConfidential, expiration = '1w') {
+function updateConfidentialModeUI(isConfidential, coords) {
   if (enableConfidentialModeInput) enableConfidentialModeInput.checked = Boolean(isConfidential);
-  if (confidentialExpirationSelect && document.activeElement !== confidentialExpirationSelect) {
-    confidentialExpirationSelect.value = expiration || '1w';
-  }
   if (confidentialSettingsContent) {
     confidentialSettingsContent.style.display = isConfidential ? 'block' : 'none';
   }
-  const expText = getConfidentialExpirationLabel(expiration);
+  const c = coords || currentSettings.confidentialCoordinates || {};
+  const mode = c.mode || '3point';
+  const hasCalibration = Boolean(c.point1);
+
   if (confidentialModeBadge) {
     if (isConfidential) {
-      confidentialModeBadge.textContent = `🔒 Active (${expText})`;
-      confidentialModeBadge.className = 'badge badge-sent';
+      if (hasCalibration) {
+        confidentialModeBadge.textContent = `🔒 Calibrated (${mode === '3point' ? '3-Pt' : '2-Pt'})`;
+        confidentialModeBadge.className = 'badge badge-sent';
+      } else {
+        confidentialModeBadge.textContent = '⚠️ Calibrate Now';
+        confidentialModeBadge.className = 'badge badge-pending';
+      }
     } else {
       confidentialModeBadge.textContent = 'Off';
       confidentialModeBadge.className = 'brand-tag';
@@ -1722,27 +1761,26 @@ function updateConfidentialModeUI(isConfidential, expiration = '1w') {
   }
   if (confidentialModeDesc) {
     if (isConfidential) {
-      confidentialModeDesc.textContent = `Expires in ${expText}. Recipients cannot forward, copy, print, or download.`;
+      if (hasCalibration) {
+        confidentialModeDesc.textContent = `Active: Automates Gmail Confidential Mode via ${mode === '3point' ? '3-point' : '2-point'} click coordinates.`;
+      } else {
+        confidentialModeDesc.textContent = 'Active: Click "🎯 Calibrate on Gmail" below to set your click points.';
+      }
     } else {
-      confidentialModeDesc.textContent = 'Set email expiration date & prevent recipients from forwarding, copying, or printing.';
+      confidentialModeDesc.textContent = 'Automates Gmail Confidential Mode using calibrated click coordinates.';
     }
   }
   if (confidentialModeCard) {
     confidentialModeCard.classList.toggle('is-confidential', Boolean(isConfidential));
   }
+  updateConfidentialCoordsUI(c);
 }
 
 /**
  * Update Confidential Mode Coordinate Calibration UI
  */
-function updateConfidentialCoordsUI(overrideEnabled, coords) {
-  if (enableConfidentialCoordsOverride) {
-    enableConfidentialCoordsOverride.checked = Boolean(overrideEnabled);
-  }
-  if (confidentialCoordsDetails) {
-    confidentialCoordsDetails.style.display = overrideEnabled ? 'block' : 'none';
-  }
-  const c = coords || {};
+function updateConfidentialCoordsUI(coords) {
+  const c = coords || currentSettings.confidentialCoordinates || {};
   const mode = c.mode || '3point';
 
   // Toggle Mode button styling
@@ -3446,6 +3484,229 @@ function renderLeadsList() {
   leadsContainer.classList.toggle('compact', isCompact);
 
   const isQueueRunning = Boolean(currentQueueState.isRunning);
+
+  // BCC Mode Queue Compiler: Rearranges pending leads into compiled BCC batch cards
+  if (Boolean(currentSettings.enableBccMode)) {
+    const rawBatchSize = parseInt(currentSettings.bccBatchSize, 10) || 10;
+    const batchSize = Math.max(2, Math.min(100, rawBatchSize));
+    const pendingLeads = filtered.filter((l) => l.status === 'pending');
+    const otherLeads = filtered.filter((l) => l.status !== 'pending');
+
+    const batches = [];
+    for (let i = 0; i < pendingLeads.length; i += batchSize) {
+      batches.push(pendingLeads.slice(i, i + batchSize));
+    }
+
+    if (leadsCountBadge) {
+      leadsCountBadge.textContent = isFilterQueueViewActive
+        ? `${filtered.length} Filtered Leads (${batches.length} BCC Batches)`
+        : `${pendingLeads.length} Pending (${batches.length} BCC Batches)`;
+    }
+
+    const htmlChunks = [];
+
+    // Render compiled BCC Batches
+    for (let bIdx = 0; bIdx < batches.length; bIdx++) {
+      const batch = batches[bIdx];
+      const isAnyPriority = batch.some((l) => l.isPrioritized);
+      const isExpanded = expandedBccBatches.has(bIdx);
+      const isSending = batch.some((l) => l.status === 'sending');
+      const batchLeadIdsStr = batch.map((l) => l.id).join(',');
+
+      // Chips for first 4 recipient emails
+      const maxChips = 4;
+      const chipEmails = batch.slice(0, maxChips);
+      const remainingCount = batch.length - maxChips;
+      const chipsHtml = chipEmails
+        .map((l) => `<span class="bcc-chip" title="${escapeHtml(l.email)}">${escapeHtml(l.email)}</span>`)
+        .join('') + (remainingCount > 0 ? `<span class="bcc-chip-more">+${remainingCount} more</span>` : '');
+
+      if (isCompact) {
+        htmlChunks.push(`
+          <div class="compact-bcc-batch-row ${isSending ? 'is-sending' : ''}" data-batch-index="${bIdx}">
+            <div class="compact-bcc-info">
+              <span class="compact-bcc-title">⚡ Batch #${bIdx + 1}</span>
+              <span class="compact-bcc-leads-count">${batch.length} Leads</span>
+              ${isAnyPriority ? '<span class="badge badge-priority" style="font-size: 8.5px; padding: 1px 4px;">⭐</span>' : ''}
+              <span class="compact-bcc-subject" title="${escapeHtml(batch[0].subject || '')}">${escapeHtml(batch[0].subject || '(Template subject rotation)')}</span>
+            </div>
+            <div class="compact-actions">
+              <button class="btn btn-secondary btn-xs compose-bcc-batch-btn" data-batch-ids="${batchLeadIdsStr}" title="Compose BCC batch in Gmail tab" ${isSending ? 'disabled' : ''}>
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M12 20h9"/>
+                  <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>
+                </svg>
+              </button>
+              <button class="btn btn-primary btn-xs send-bcc-batch-btn" data-batch-ids="${batchLeadIdsStr}" title="Auto-send this BCC batch immediately" ${(isSending || isQueueRunning) ? 'disabled' : ''}>
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polygon points="5 3 19 12 5 21 5 3"/>
+                </svg>
+              </button>
+              <button class="btn btn-secondary btn-xs view-bcc-body-btn" data-lead-id="${batch[0].id}" title="Preview Email Body">
+                👁️
+              </button>
+              <button class="btn btn-secondary btn-xs toggle-bcc-expand-btn" data-batch-index="${bIdx}" title="${isExpanded ? 'Hide leads list' : 'View all leads'}">
+                ${isExpanded ? '▲' : '▼'}
+              </button>
+            </div>
+          </div>
+          <div class="bcc-batch-leads-list" id="bccBatchLeadsList_${bIdx}" style="display: ${isExpanded ? 'flex' : 'none'}; margin-bottom: 8px;">
+            ${batch.map((lead, lIdx) => `
+              <div class="bcc-lead-subrow status-${lead.status}" data-card-id="${lead.id}">
+                <span class="bcc-subrow-idx">#${lIdx + 1}</span>
+                <span class="bcc-subrow-email" title="${escapeHtml(lead.email)}">${escapeHtml(lead.email)}</span>
+                <span class="badge badge-${lead.status} compact-badge status-toggle-badge" data-id="${lead.id}" title="Click to toggle status" style="cursor: pointer;">${lead.status}</span>
+                <div class="bcc-subrow-actions">
+                  <button class="btn btn-secondary btn-xs compose-btn" data-id="${lead.id}" title="Compose single lead">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M12 20h9"/>
+                      <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>
+                    </svg>
+                  </button>
+                  <button class="btn btn-outline-danger btn-xs delete-lead-btn" data-id="${lead.id}" title="Remove lead from queue">
+                    ✕
+                  </button>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        `);
+      } else {
+        htmlChunks.push(`
+          <div class="bcc-batch-card ${isSending ? 'is-sending' : ''}" data-batch-index="${bIdx}">
+            <div class="bcc-batch-header">
+              <div class="bcc-batch-title-area">
+                <span class="bcc-batch-idx">⚡ BCC Batch #${bIdx + 1}</span>
+                <span class="bcc-batch-pill">${batch.length} Leads</span>
+                ${isAnyPriority ? '<span class="badge badge-priority">⭐ Priority</span>' : ''}
+              </div>
+              <span class="badge ${isSending ? 'badge-sending' : 'badge-pending'}">${isSending ? 'Sending...' : 'Ready'}</span>
+            </div>
+
+            <div class="bcc-batch-summary">
+              <div class="bcc-batch-subject" title="${escapeHtml(batch[0].subject || '')}">
+                <strong>Subject:</strong> ${escapeHtml(batch[0].subject || '(Template subject rotation)')}
+              </div>
+              <div class="bcc-recipients-header">
+                <span class="bcc-label">BCC Recipients (${batch.length}):</span>
+              </div>
+              <div class="bcc-chips-container">
+                ${chipsHtml}
+              </div>
+            </div>
+
+            <div class="bcc-batch-actions">
+              <button class="btn btn-secondary btn-xs compose-bcc-batch-btn" data-batch-ids="${batchLeadIdsStr}" title="Stage this BCC batch in Gmail" ${isSending ? 'disabled' : ''}>
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M12 20h9"/>
+                  <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>
+                </svg>
+                Compose Batch
+              </button>
+
+              <button class="btn btn-primary btn-xs send-bcc-batch-btn" data-batch-ids="${batchLeadIdsStr}" title="Auto-send this BCC batch immediately" ${(isSending || isQueueRunning) ? 'disabled' : ''}>
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polygon points="5 3 19 12 5 21 5 3"/>
+                </svg>
+                Send Batch
+              </button>
+
+              <button class="btn btn-secondary btn-xs view-bcc-body-btn" data-lead-id="${batch[0].id}" title="Preview Body">
+                👁️ Preview Body
+              </button>
+
+              <button class="btn btn-secondary btn-xs toggle-bcc-expand-btn" data-batch-index="${bIdx}">
+                <span class="toggle-expand-text">${isExpanded ? 'Hide Leads ▲' : `View Leads (${batch.length}) ▼`}</span>
+              </button>
+            </div>
+
+            <div class="bcc-batch-leads-list" id="bccBatchLeadsList_${bIdx}" style="display: ${isExpanded ? 'flex' : 'none'};">
+              ${batch.map((lead, lIdx) => `
+                <div class="bcc-lead-subrow status-${lead.status}" data-card-id="${lead.id}">
+                  <span class="bcc-subrow-idx">#${lIdx + 1}</span>
+                  <span class="bcc-subrow-email" title="${escapeHtml(lead.email)}">${escapeHtml(lead.email)}</span>
+                  <span class="badge badge-${lead.status} status-toggle-badge" data-id="${lead.id}" title="Click to toggle status" style="cursor: pointer;">${lead.status}</span>
+                  <div class="bcc-subrow-actions">
+                    <button class="btn btn-secondary btn-xs compose-btn" data-id="${lead.id}" title="Compose single lead">
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M12 20h9"/>
+                        <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>
+                      </svg>
+                    </button>
+                    <button class="btn btn-outline-danger btn-xs delete-lead-btn" data-id="${lead.id}" title="Remove lead from queue">
+                      ✕
+                    </button>
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        `);
+      }
+    }
+
+    // Render otherLeads (sent or error) below compiled batches
+    if (otherLeads.length > 0) {
+      htmlChunks.push(`<div class="bcc-processed-section-header">Processed / Sent Leads (${otherLeads.length})</div>`);
+      for (let oIdx = 0; oIdx < otherLeads.length; oIdx++) {
+        const lead = otherLeads[oIdx];
+        const badgeClass = `badge-${lead.status}`;
+        const statusText = lead.status === 'sent' ? 'Sent' : lead.status === 'error' ? 'Error' : lead.status;
+        let sentTimeStr = '';
+        if (lead.sentAt) {
+          const d = new Date(lead.sentAt);
+          sentTimeStr = ` (${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})`;
+        }
+        if (isCompact) {
+          htmlChunks.push(`
+            <div class="compact-lead-row status-${lead.status}" data-card-id="${lead.id}">
+              <span class="compact-idx">✓</span>
+              <span class="compact-email" title="${escapeHtml(lead.email)}">${escapeHtml(lead.email)}</span>
+              <span class="compact-subject" title="${escapeHtml(lead.subject || '')}">${escapeHtml(lead.subject || '')}</span>
+              <span class="badge ${badgeClass} compact-badge status-toggle-badge" data-id="${lead.id}" style="cursor: pointer;">${statusText}</span>
+              <div class="compact-actions">
+                <button class="btn btn-secondary btn-xs compose-btn" data-id="${lead.id}" title="Compose single lead">
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+                </button>
+                <button class="btn btn-primary btn-xs auto-send-btn" data-id="${lead.id}" title="Resend single email" ${isQueueRunning ? 'disabled' : ''}>
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                </button>
+                <button class="btn btn-outline-danger btn-xs delete-lead-btn" data-id="${lead.id}" title="Remove lead">✕</button>
+              </div>
+            </div>
+          `);
+        } else {
+          htmlChunks.push(`
+            <div class="lead-card status-${lead.status}" data-card-id="${lead.id}">
+              <div class="lead-row-top">
+                <div class="lead-meta">
+                  <span class="lead-idx">✓</span>
+                  <span class="lead-email" title="${escapeHtml(lead.email)}">${escapeHtml(lead.email)}</span>
+                </div>
+                <span class="badge ${badgeClass} status-toggle-badge" data-id="${lead.id}" style="cursor: pointer;">${statusText}${sentTimeStr}</span>
+              </div>
+              <div class="lead-subject">${escapeHtml(lead.subject || '')}</div>
+              ${lead.errorMessage ? `<div class="lead-error-msg">${escapeHtml(lead.errorMessage)}</div>` : ''}
+              <div class="lead-actions">
+                <button class="btn btn-secondary btn-xs view-body-btn" data-id="${lead.id}">Preview Body</button>
+                <div class="lead-action-btns">
+                  <button class="btn btn-secondary btn-xs compose-btn" data-id="${lead.id}" title="Compose in Gmail tab">Compose</button>
+                  <button class="btn btn-primary btn-xs auto-send-btn" data-id="${lead.id}" title="Resend single email" ${isQueueRunning ? 'disabled' : ''}>
+                    Resend 1
+                  </button>
+                  <button class="btn btn-outline-danger btn-xs delete-lead-btn" data-id="${lead.id}" title="Remove lead">✕</button>
+                </div>
+              </div>
+            </div>
+          `);
+        }
+      }
+    }
+
+    leadsContainer.innerHTML = htmlChunks.join('');
+    return;
+  }
+
   const totalToShow = Math.min(filtered.length, leadsDisplayLimit);
   const htmlChunks = [];
 
@@ -3609,6 +3870,58 @@ async function handleManualCompose(lead) {
   } catch (err) {
     console.error('Error invoking in-page compose:', err);
     showBanner(banner, `Error: ${err.message}`, 'error');
+  }
+}
+
+/**
+ * Handle Compose BCC Batch: in-page Gmail automation staging with all batch leads in BCC
+ */
+async function handleComposeBccBatch(leadIds) {
+  showBanner(statusBanner, `Connecting to Gmail to stage BCC batch (${leadIds.length} leads)...`, 'info');
+  try {
+    const res = await chrome.runtime.sendMessage({
+      action: 'COMPOSE_BCC_BATCH',
+      leadIds: leadIds
+    });
+    if (res && res.success) {
+      showBanner(statusBanner, `Draft staged in Gmail with ${leadIds.length} BCC recipients! Review and click Send.`, 'success');
+    } else {
+      const batchLeads = currentLeads.filter((l) => leadIds.includes(l.id));
+      const bccStr = batchLeads.map((l) => (l.email || '').trim()).filter(Boolean).join(',');
+      const subject = batchLeads[0]?.subject || '';
+      const body = batchLeads[0]?.body || '';
+      const composeUrl =
+        'https://mail.google.com/mail/?view=cm&fs=1' +
+        `&bcc=${encodeURIComponent(bccStr)}` +
+        `&su=${encodeURIComponent(subject)}` +
+        `&body=${encodeURIComponent(body)}`;
+      chrome.tabs.create({ url: composeUrl, active: true });
+      showBanner(statusBanner, `Opened Gmail compose tab with ${leadIds.length} BCC recipients.`, 'success');
+    }
+  } catch (err) {
+    console.error('Error composing BCC batch:', err);
+    showBanner(statusBanner, `Error staging BCC batch: ${err.message}`, 'error');
+  }
+}
+
+/**
+ * Handle Send BCC Batch: dispatches the entire compiled BCC batch on-demand
+ */
+async function handleSendBccBatch(leadIds) {
+  showBanner(statusBanner, `Sending BCC batch of ${leadIds.length} leads...`, 'info');
+  try {
+    const res = await chrome.runtime.sendMessage({
+      action: 'SEND_BCC_BATCH',
+      leadIds: leadIds
+    });
+    if (res && res.success) {
+      showBanner(statusBanner, `BCC batch of ${leadIds.length} leads sent successfully!`, 'success');
+    } else {
+      showBanner(statusBanner, `BCC batch send failed: ${res?.error || 'Unknown error'}`, 'error');
+    }
+  } catch (err) {
+    console.error('Error sending BCC batch:', err);
+    showBanner(statusBanner, `Error sending BCC batch: ${err.message}`, 'error');
   }
 }
 

@@ -1768,3 +1768,248 @@ body {
     transform: scale(1) translateY(0);
   }
 }
+
+/* ==========================================================================
+   BCC Batch Cards & Compiled Queue Styles
+   ========================================================================== */
+.bcc-batch-card {
+  background: var(--bg-surface);
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+  transition: all 0.18s ease;
+  position: relative;
+}
+
+.bcc-batch-card:hover {
+  border-color: var(--primary);
+  box-shadow: 0 2px 8px var(--primary-glow);
+}
+
+.bcc-batch-card.is-sending {
+  border-color: var(--primary);
+  box-shadow: 0 0 12px var(--primary-glow);
+  animation: pulse 1.2s infinite;
+}
+
+.bcc-batch-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  gap: 8px;
+}
+
+.bcc-batch-title-area {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.bcc-batch-idx {
+  font-size: 12px;
+  font-weight: 700;
+  color: #818cf8;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.bcc-batch-pill {
+  font-size: 10px;
+  font-weight: 600;
+  background: rgba(99, 102, 241, 0.18);
+  color: #a5b4fc;
+  padding: 1px 7px;
+  border-radius: 10px;
+  border: 1px solid rgba(99, 102, 241, 0.3);
+}
+
+.bcc-batch-summary {
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+  margin-bottom: 8px;
+}
+
+.bcc-batch-subject {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 5px;
+}
+
+.bcc-batch-subject strong {
+  color: var(--text-main);
+  font-weight: 600;
+}
+
+.bcc-recipients-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.bcc-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.bcc-chips-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+
+.bcc-chip {
+  font-size: 10px;
+  font-family: monospace;
+  background: var(--bg-surface);
+  color: var(--text-main);
+  border: 1px solid var(--border-subtle);
+  padding: 1px 6px;
+  border-radius: 4px;
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bcc-chip-more {
+  font-size: 9.5px;
+  font-weight: 600;
+  color: #818cf8;
+  padding: 1px 4px;
+}
+
+.bcc-batch-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.bcc-batch-leads-list {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.bcc-lead-subrow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 6px;
+  background: var(--bg-surface-elevated);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  font-size: 11px;
+  transition: border-color 0.15s ease;
+}
+
+.bcc-lead-subrow:hover {
+  border-color: var(--border-focus);
+}
+
+.bcc-subrow-idx {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-dim);
+  min-width: 20px;
+}
+
+.bcc-subrow-email {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+  color: var(--text-main);
+}
+
+.bcc-subrow-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.bcc-processed-section-header {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 8px 4px 4px 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-top: 1px solid var(--border-subtle);
+  margin-top: 10px;
+  margin-bottom: 6px;
+}
+
+/* Compact BCC Batch Row */
+.compact-bcc-batch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: var(--bg-surface);
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+  margin-bottom: 4px;
+}
+
+.compact-bcc-batch-row:hover {
+  border-color: var(--primary);
+}
+
+.compact-bcc-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+
+.compact-bcc-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: #818cf8;
+  white-space: nowrap;
+}
+
+.compact-bcc-leads-count {
+  font-size: 9.5px;
+  background: rgba(99, 102, 241, 0.15);
+  color: #a5b4fc;
+  padding: 1px 5px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.compact-bcc-subject {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
