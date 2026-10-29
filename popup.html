@@ -1,0 +1,1129 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Midey — Gmail Lead Dispatcher</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+
+<body>
+
+  <!-- App Header with Midey Branding (Clicking Midey triggers secret developer unlock) -->
+  <header class="app-header">
+    <div class="brand" id="brandSecretTrigger" title="Click Midey to unlock developer JSON mode"
+      style="cursor: pointer;">
+      <div class="brand-icon">M</div>
+      <div class="brand-title">
+        <h1>Midey <span class="brand-tag">Mailer</span></h1>
+        <p>Gmail Lead Dispatcher & Follow-Up System</p>
+      </div>
+    </div>
+    <div class="header-actions">
+      <!-- Layout & Minimalism Customizer Button -->
+      <button id="layoutSettingsBtn" class="btn btn-secondary btn-xs" title="Customize Homepage Sections & Minimalism">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect width="18" height="18" x="3" y="3" rx="2" ry="2" />
+          <line x1="3" y1="9" x2="21" y2="9" />
+          <line x1="9" y1="21" x2="9" y2="9" />
+        </svg>
+        Layout
+      </button>
+
+      <!-- Theme Toggle Button -->
+      <button id="themeToggleBtn" class="btn btn-secondary btn-xs" title="Toggle Light/Dark Theme">
+        <span id="themeIcon">☀️</span>
+        <span id="themeLabel">Light</span>
+      </button>
+
+      <!-- Side Panel Button -->
+      <button id="openSidePanelBtn" class="btn btn-secondary btn-xs" title="Open inside Chrome Side Panel">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect width="18" height="18" x="3" y="3" rx="2" ry="2" />
+          <line x1="15" x2="15" y1="3" y2="21" />
+        </svg>
+        Side Panel
+      </button>
+    </div>
+  </header>
+
+  <!-- Minimalist Mode Banner (visible when one or more homepage sections are hidden) -->
+  <div id="minimalistNotice" class="minimalist-notice" style="display: none;">
+    <div style="display: flex; align-items: center; gap: 6px;">
+      <span>🎯 <strong>Minimalist View</strong>: Some sections are hidden.</span>
+    </div>
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <button id="quickCustomizeLayoutBtn" class="btn-link-action">Customize</button>
+      <span style="opacity: 0.5;">•</span>
+      <button id="resetLayoutQuickBtn" class="btn-link-action">Show All</button>
+    </div>
+  </div>
+
+  <!-- GLOBAL ANALYTICAL BOARD (7-Day Record, Lifetime Dispatched, Today's Volume) -->
+  <section id="sectionAnalytics" class="card analytics-card collapsible-section">
+    <div class="section-collapse-header" data-collapse-target="sectionAnalytics">
+      <div class="section-collapse-title">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="18" y1="20" x2="18" y2="10" />
+          <line x1="12" y1="20" x2="12" y2="4" />
+          <line x1="6" y1="20" x2="6" y2="14" />
+        </svg>
+        <span>Global Dispatch Analytics</span>
+        <span id="analyticsTodayBadge" class="brand-tag" style="font-size: 10px;">0 Today</span>
+      </div>
+      <div class="section-collapse-actions" style="display: flex; align-items: center; gap: 6px;">
+        <button id="resetAnalyticsBtn" class="btn btn-secondary btn-xs"
+          title="Reset all lifetime and 7-day analytics (password required)">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+            <path d="M3 3v5h5" />
+          </svg>
+          Reset Stats
+        </button>
+        <span class="collapse-icon">▼</span>
+      </div>
+    </div>
+
+    <div class="section-collapsible-content">
+      <!-- 3 Primary Metric Cards -->
+      <div class="analytics-metrics-grid">
+        <div class="metric-card">
+          <div class="metric-label">Today's Sent</div>
+          <div id="analyticsTodayCount" class="metric-value today-val">0</div>
+          <div class="metric-sub">Today's volume</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">7-Day Record</div>
+          <div id="analyticsSevenDayCount" class="metric-value week-val">0</div>
+          <div class="metric-sub">Rolling 7-day total</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Lifetime Dispatched</div>
+          <div id="analyticsLifetimeCount" class="metric-value lifetime-val">0</div>
+          <div class="metric-sub">All-time record</div>
+        </div>
+      </div>
+
+      <!-- 7-Day History Daily Performance Breakdown -->
+      <div class="seven-day-container">
+        <div class="seven-day-header">
+          <span>Rolling 7-Day Performance Record:</span>
+        </div>
+        <div id="sevenDayBars" class="seven-day-bars">
+          <!-- Dynamic 7-day chips rendered here -->
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SECTION 1: Lead Data Hub (Import & Export - Pure Data Management) -->
+  <section id="sectionImport" class="card collapsible-section">
+    <div class="section-collapse-header" data-collapse-target="sectionImport">
+      <div class="section-collapse-title">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+          <polyline points="17 8 12 3 7 8" />
+          <line x1="12" x2="12" y1="3" y2="15" />
+        </svg>
+        <span>Lead Data Hub (Import & Export)</span>
+        <span id="importModeBadge" class="badge badge-pending" style="font-size: 10px; padding: 1px 6px;">CSV Data</span>
+      </div>
+      <div class="section-collapse-actions">
+        <span class="collapse-icon">▼</span>
+      </div>
+    </div>
+
+    <div class="section-collapsible-content">
+      <!-- Import Mode Navigation Tabs (CSV Default, JSON Hidden until secret unlock) -->
+      <div class="tabs-nav" style="margin-top: 10px;">
+        <button class="tab-btn active" data-tab="tab-csv">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+            <polyline points="14 2 14 8 20 8" />
+            <line x1="16" x2="8" y1="13" y2="13" />
+            <line x1="16" x2="8" y1="17" y2="17" />
+          </svg>
+          CSV Leads (Import / Export)
+        </button>
+        <!-- JSON Array Tab: Hidden by default, unlocked via clicking Midey brand + password -->
+        <button class="tab-btn" id="tabBtnJson" data-tab="tab-json" style="display: none;">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="16 18 22 12 16 6" />
+            <polyline points="8 6 2 12 8 18" />
+          </svg>
+          JSON Array 🔓
+        </button>
+      </div>
+
+      <!-- Tab 1: CSV Leads Importer & Exporter (Default Active Tab) -->
+      <div id="tab-csv" class="tab-panel active">
+        <div style="background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 12px; margin-top: 6px;">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+            <span style="font-size: 12px; font-weight: 600; color: var(--text-main);">Upload or Paste Leads CSV</span>
+            <div style="display: flex; gap: 6px;">
+              <button id="clearCsvBtn" class="btn btn-secondary btn-xs">Clear Box</button>
+            </div>
+          </div>
+
+          <!-- File Dropzone -->
+          <div id="csvDropzone" class="csv-dropzone">
+            <input type="file" id="csvFileInput" accept=".csv,text/csv" style="display: none;">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+              style="margin: 0 auto 4px; display: block; color: var(--text-muted);">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="17 8 12 3 7 8" />
+              <line x1="12" x2="12" y1="3" y2="15" />
+            </svg>
+            <span style="font-size: 12px; font-weight: 600; color: var(--text-main);">Click to upload CSV</span> or drag & drop file
+          </div>
+
+          <!-- Raw CSV Text Area -->
+          <textarea id="csvInput" class="code-textarea" style="height: 80px;" placeholder="Paste CSV data here (e.g. email, country, company, name...)"
+            spellcheck="false"></textarea>
+
+          <!-- Grouped Action Buttons: Load Leads & Export CSV -->
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 10px; flex-wrap: wrap; gap: 8px;">
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <button id="exportCsvBtn" class="btn btn-secondary btn-xs" title="Export currently loaded leads and their statuses to CSV">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="7 10 12 15 17 10" />
+                  <line x1="12" x2="12" y1="15" y2="3" />
+                </svg>
+                Export CSV Report
+              </button>
+            </div>
+            <div style="display: flex; gap: 6px;">
+              <button id="loadCsvLeadsBtn" class="btn btn-primary">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="7 10 12 15 17 10" />
+                  <line x1="12" x2="12" y1="15" y2="3" />
+                </svg>
+                Load Leads to Queue
+              </button>
+            </div>
+          </div>
+          <div id="csvStatusBanner" class="banner"></div>
+        </div>
+      </div>
+
+      <!-- Tab 2: JSON Importer (Hidden by default, unlocked via secret password) -->
+      <div id="tab-json" class="tab-panel">
+        <div style="background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 12px; margin-top: 6px;">
+          <!-- Developer Mode Unlocked Header & Lock Control -->
+          <div class="json-unlocked-banner">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span style="font-size: 11.5px; font-weight: 700; color: var(--success); display: flex; align-items: center; gap: 5px;">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect width="18" height="11" x="3" y="11" rx="2" ry="2" />
+                  <path d="M7 11V7a5 5 0 0 1 9.9-1" />
+                </svg>
+                Developer JSON Mode Unlocked
+              </span>
+              <label class="checkbox-setting" style="margin-top: 0; cursor: pointer;">
+                <input type="checkbox" id="keepJsonUnlockedCheckbox">
+                <span style="font-size: 11px; color: var(--text-muted);">Keep unlocked across sessions</span>
+              </label>
+            </div>
+            <button id="lockJsonBtn" class="btn btn-secondary btn-xs" title="Lock and re-hide JSON mode">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect width="18" height="11" x="3" y="11" rx="2" ry="2" />
+                <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+              </svg>
+              Lock & Hide
+            </button>
+          </div>
+
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; flex-wrap: wrap; gap: 6px;">
+            <span style="font-size: 12px; font-weight: 600; color: var(--text-main);">Paste JSON or Labeled Plain Text</span>
+            <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+              <input type="file" id="jsonFileInput" accept=".json,.txt,.text,text/plain,application/json" style="display: none;">
+              <button id="uploadJsonFileBtn" class="btn btn-secondary btn-xs" title="Upload JSON or text file">Upload File</button>
+              <button id="clearInputBtn" class="btn btn-secondary btn-xs">Clear Box</button>
+            </div>
+          </div>
+          <textarea id="jsonInput" class="code-textarea"
+            placeholder="Paste JSON array ([ { email, subject, body } ]) or plain text leads here..."
+            spellcheck="false"></textarea>
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 8px;">
+            <span style="font-size: 11px; color: var(--text-dim);">Accepts JSON array/object or plain text (email:, subject:, body:)</span>
+            <button id="loadLeadsBtn" class="btn btn-primary">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" x2="12" y1="15" y2="3" />
+              </svg>
+              Load Leads
+            </button>
+          </div>
+          <div id="statusBanner" class="banner"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SECTION 2: Message Content & Signatures Hub (Subject, Body & Rotating Footer Signatures) -->
+  <section id="sectionContent" class="card collapsible-section">
+    <div class="section-collapse-header" data-collapse-target="sectionContent">
+      <div class="section-collapse-title">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
+          <polyline points="22,6 12,13 2,6" />
+        </svg>
+        <span>Message Content & Signatures</span>
+        <span class="badge badge-pending" style="font-size: 10px; padding: 1px 6px;">Templates & Signatures</span>
+      </div>
+      <div class="section-collapse-actions">
+        <span class="collapse-icon">▼</span>
+      </div>
+    </div>
+
+    <div class="section-collapsible-content">
+      <div style="background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 12px; margin-top: 10px;">
+        <!-- Hidden compatibility checkbox for legacy code -->
+        <input type="checkbox" id="csvUseTemplateCheckbox" checked style="display: none;">
+
+        <!-- Discovered CSV / Lead Tags Bar -->
+        <div id="csvTagsContainer" style="font-size: 11.5px; margin-bottom: 10px;">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+            <span style="font-weight: 600; color: var(--text-main); display: flex; align-items: center; gap: 5px;">
+              🏷️ Personalization Tags (click to insert):
+            </span>
+            <span style="font-size: 10.5px; color: var(--text-dim);">Inserts at cursor</span>
+          </div>
+          <div id="csvTagsList" class="csv-tags-bar">
+            <span class="no-tags-hint" style="font-size: 11px; color: var(--text-dim);">(Tags like {email}, {name}, {company} appear here based on CSV headers once leads are loaded)</span>
+          </div>
+        </div>
+
+        <!-- Template Mode Switch: Single Template vs Multi-Content Variations -->
+        <div class="content-mode-bar" style="margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--border-subtle);">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="font-size: 11.5px; font-weight: 700; color: var(--text-main);">Content Mode:</span>
+            <div class="mode-pill-toggle">
+              <button type="button" id="modeSingleBtn" class="mode-pill active">Single Template</button>
+              <button type="button" id="modeMultiBtn" class="mode-pill">🔀 Multi-Content (A/B)</button>
+            </div>
+          </div>
+          <div id="multiContentModeBadge" class="brand-tag" style="font-size: 10px; display: none;">
+            Rotation Active
+          </div>
+        </div>
+
+        <!-- 1. SINGLE TEMPLATE VIEW (Default / Minimalist) -->
+        <div id="singleContentContainer" style="display: flex; flex-direction: column; gap: 10px;">
+          <div>
+            <label class="setting-label" for="csvSubjectTemplate">Subject Template:</label>
+            <input type="text" id="csvSubjectTemplate" class="setting-input" style="width: 100%; margin-top: 3px;"
+              placeholder="Optional: e.g. Quick question for {name}">
+          </div>
+          <div>
+            <label class="setting-label" for="csvBodyTemplate">Email Body Template:</label>
+            <textarea id="csvBodyTemplate" class="code-textarea" style="height: 95px; margin-top: 3px;"
+              placeholder="Optional: Enter body template or leave blank to use details from CSV file..." spellcheck="false"></textarea>
+          </div>
+        </div>
+
+        <!-- 2. MULTI-CONTENT ROTATION VIEW (Revealed when Multi-Content is enabled) -->
+        <div id="multiContentContainer" style="display: none; flex-direction: column; gap: 12px;">
+          
+          <!-- Rotation Settings Bar -->
+          <div class="rotation-settings-card" style="background: var(--bg-base); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 10px 12px;">
+            <div style="font-size: 11.5px; font-weight: 700; color: var(--text-main); margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
+              <span>🔀 A/B Testing & Rotation Settings</span>
+            </div>
+            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+              <div class="setting-item" style="flex: 1; min-width: 150px;">
+                <label class="setting-label" for="rotationTargetSelect">What to Rotate:</label>
+                <select id="rotationTargetSelect" class="setting-input" style="width: 100%; margin-top: 3px;">
+                  <option value="both">Both Subject & Body</option>
+                  <option value="subject">Subject Only (Body #1 fixed)</option>
+                  <option value="body">Body Only (Subject #1 fixed)</option>
+                </select>
+              </div>
+              <div class="setting-item" style="flex: 1; min-width: 150px;">
+                <label class="setting-label" for="rotationModeSelect">Rotation Order:</label>
+                <select id="rotationModeSelect" class="setting-input" style="width: 100%; margin-top: 3px;">
+                  <option value="sequential">One-by-one (Sequential)</option>
+                  <option value="random">Random Order</option>
+                </select>
+              </div>
+            </div>
+            <div id="rotationSummaryText" style="font-size: 10.5px; color: var(--text-muted); margin-top: 6px;">
+              Rotating both subject and body one-by-one across all pending leads.
+            </div>
+          </div>
+
+          <!-- Multiple Subjects Manager -->
+          <div class="multi-section-box">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+              <span style="font-size: 11.5px; font-weight: 700; color: var(--text-main); display: flex; align-items: center; gap: 6px;">
+                📝 Subject Variations (<span id="subjectCountText">1</span>)
+              </span>
+              <button id="addSubjectBtn" type="button" class="btn btn-secondary btn-xs">+ Add Subject</button>
+            </div>
+            <div id="subjectsListContainer" style="display: flex; flex-direction: column; gap: 8px;">
+              <!-- Dynamic subjects rendered here -->
+            </div>
+          </div>
+
+          <!-- Multiple Bodies Manager -->
+          <div class="multi-section-box" style="margin-top: 6px;">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+              <span style="font-size: 11.5px; font-weight: 700; color: var(--text-main); display: flex; align-items: center; gap: 6px;">
+                📄 Email Body Variations (<span id="bodyCountText">1</span>)
+              </span>
+              <button id="addBodyBtn" type="button" class="btn btn-secondary btn-xs">+ Add Body</button>
+            </div>
+            <div id="bodiesListContainer" style="display: flex; flex-direction: column; gap: 8px;">
+              <!-- Dynamic bodies rendered here -->
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Dedicated Content Sync Action Card -->
+        <div class="content-sync-card" style="margin-top: 12px; padding: 10px 12px; background: var(--bg-base); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;">
+          <div style="flex: 1; min-width: 200px;">
+            <div style="font-size: 11.5px; font-weight: 600; color: var(--text-main); display: flex; align-items: center; gap: 5px;">
+              🔄 Update Leads with New Content
+            </div>
+            <div style="font-size: 10.5px; color: var(--text-muted); margin-top: 2px; line-height: 1.35;">
+              Made edits above or below? Click to re-render and sync all pending leads in your queue with this updated Subject, Body, and Signatures.
+            </div>
+          </div>
+          <button id="syncContentToLeadsBtn" class="btn btn-primary btn-xs" style="padding: 6px 12px; font-size: 11.5px; font-weight: 600; display: flex; align-items: center; gap: 6px;" title="Update all loaded pending leads with this subject and body">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
+            </svg>
+            Sync to Leads
+          </button>
+        </div>
+        <div id="contentSyncBanner" class="banner" style="margin-top: 8px;"></div>
+
+        <!-- Integrated Footer Signatures Section (Placed directly under Subject & Body in the same section) -->
+        <div style="margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border-subtle);">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+            <span style="font-size: 12px; font-weight: 700; color: var(--text-main); display: flex; align-items: center; gap: 5px;">
+              ✍️ Footer Signatures
+            </span>
+            <button id="addSignatureBtn" class="btn btn-secondary btn-xs">+ Add Signature</button>
+          </div>
+
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--border-subtle);">
+            <label class="checkbox-setting" style="margin-top: 0;">
+              <input type="checkbox" id="enableSignatureCheckbox">
+              <span style="font-weight: 600; color: var(--text-main);">Append Signature to Messages</span>
+            </label>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span style="font-size: 11px; color: var(--text-muted);">Rotation:</span>
+              <select id="signatureRotationSelect" class="setting-input" style="padding: 3px 6px; font-size: 11px;">
+                <option value="sequential">One-by-one (Sequential)</option>
+                <option value="random">Random Rotation</option>
+              </select>
+            </div>
+          </div>
+
+          <div id="signaturesListContainer">
+            <!-- Signatures dynamically rendered here -->
+          </div>
+
+          <div style="display: flex; justify-content: flex-end; margin-top: 8px;">
+            <button id="saveSignaturesBtn" class="btn btn-secondary btn-xs">Save Signatures</button>
+          </div>
+          <div id="sigStatusBanner" class="banner"></div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- SECTION 3: Lead Prioritization & Excel-Style Multi-Filter -->
+  <section id="sectionFilterPrioritize" class="card collapsible-section">
+    <div class="section-collapse-header" data-collapse-target="sectionFilterPrioritize">
+      <div class="section-collapse-title">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+        </svg>
+        <span>Lead Prioritization & Excel Filters</span>
+        <span class="brand-tag" style="font-size: 10px; padding: 1px 6px;">Excel Filter</span>
+      </div>
+      <div class="section-collapse-actions">
+        <span class="collapse-icon">▼</span>
+      </div>
+    </div>
+
+    <div class="section-collapsible-content">
+      <div style="background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 12px; margin-top: 10px;">
+        <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: 10px;">
+          <div>
+            <div style="font-size: 12px; font-weight: 700; color: var(--text-main);">
+              🎯 Filter & Prioritize Dispatch Queue
+            </div>
+            <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px; line-height: 1.4;">
+              Set Excel-like filter criteria using your CSV column headers (e.g., <strong>Country = US</strong> or <strong>Email Domain = @gmail.com</strong>) to prioritize targeted leads and send to them first.
+            </div>
+          </div>
+        </div>
+
+        <!-- Match Mode Logic & Controls -->
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid var(--border-subtle); flex-wrap: wrap; gap: 6px;">
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <span style="font-size: 11px; color: var(--text-muted); font-weight: 600;">Match Logic:</span>
+            <div class="segmented-control" style="display: inline-flex; background: var(--bg-base); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 2px;">
+              <button id="filterMatchAndBtn" type="button" class="btn-segmented active" style="padding: 2px 8px; font-size: 10.5px; border: none; background: var(--primary); color: #fff; border-radius: 4px; cursor: pointer;">ALL (AND)</button>
+              <button id="filterMatchOrBtn" type="button" class="btn-segmented" style="padding: 2px 8px; font-size: 10.5px; border: none; background: transparent; color: var(--text-muted); border-radius: 4px; cursor: pointer;">ANY (OR)</button>
+            </div>
+          </div>
+          <div style="display: flex; gap: 6px;">
+            <button id="addFilterRuleBtn" class="btn btn-secondary btn-xs">+ Add Rule</button>
+            <button id="clearFilterRulesBtn" class="btn btn-secondary btn-xs">Reset Rules</button>
+          </div>
+        </div>
+
+        <!-- Dynamic Filter Rules List Container -->
+        <div id="filterRulesList" style="display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px;">
+          <!-- Filter rule rows rendered dynamically -->
+        </div>
+
+        <!-- Match Counter & Prioritization Action Bar -->
+        <div style="padding-top: 8px; border-top: 1px solid var(--border-subtle); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+          <div id="filterMatchCountBadge" style="font-size: 11.5px; font-weight: 600; color: var(--text-main); display: flex; align-items: center; gap: 5px;">
+            🎯 <span id="filterMatchCountText">0 leads match</span>
+          </div>
+
+          <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+            <button id="toggleFilterViewBtn" class="btn btn-secondary btn-xs" title="Filter leads queue list below to show only matching leads">
+              👁️ Filter View Only
+            </button>
+            <button id="prioritizeLeadsBtn" class="btn btn-success btn-xs" style="padding: 5px 10px; font-weight: 700; display: flex; align-items: center; gap: 4px;" title="Reorder queue so matching pending leads are sent first">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+              </svg>
+              Prioritize & Send First
+            </button>
+          </div>
+        </div>
+        <div id="filterStatusBanner" class="banner" style="margin-top: 8px;"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SECTION 4: Spam-Check & Inbox Deliverability Tester (Isolated Test Queue) -->
+  <section id="sectionSpamCheck" class="card collapsible-section">
+    <div class="section-collapse-header" data-collapse-target="sectionSpamCheck">
+      <div class="section-collapse-title">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+        </svg>
+        <span>Spam-Check & Deliverability Tester</span>
+        <span id="spamCheckCountBadge" class="brand-tag" style="font-size: 10px;">0 Tests</span>
+      </div>
+      <div class="section-collapse-actions">
+        <span class="collapse-icon">▼</span>
+      </div>
+    </div>
+
+    <div class="section-collapsible-content">
+      <div style="background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 12px; margin-top: 10px;">
+        <!-- Header & Explainer -->
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+          <span style="font-size: 12px; font-weight: 700; color: var(--text-main);">
+            🛡️ Verify Inbox vs Spam Placement
+          </span>
+          <button id="clearSpamCheckInputBtn" class="btn btn-secondary btn-xs">Clear Box</button>
+        </div>
+
+        <p style="font-size: 11px; color: var(--text-muted); margin-bottom: 10px; line-height: 1.4;">
+          Send test copies to your personal test inboxes (Gmail, Outlook, Yahoo) to verify inbox deliverability before dispatching to your primary campaign leads.
+        </p>
+
+        <!-- Input Box for Test Emails -->
+        <div>
+          <label class="setting-label" for="spamCheckEmailInput">Test Email Addresses (one or more):</label>
+          <textarea id="spamCheckEmailInput" class="code-textarea" style="height: 65px; margin-top: 3px;"
+            placeholder="Paste test email addresses (e.g. test@gmail.com, test@outlook.com, one per line or comma-separated)..."
+            spellcheck="false"></textarea>
+        </div>
+
+        <!-- Email Content Options (Sync from template or custom) -->
+        <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border-subtle);">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+            <label class="checkbox-setting" style="margin-top: 0; cursor: pointer;">
+              <input type="checkbox" id="spamCheckUseTemplateCheckbox" checked>
+              <span style="font-weight: 600; color: var(--text-main);">Use Content from Template</span>
+            </label>
+            <button id="syncTemplateBtn" class="btn btn-secondary btn-xs" style="font-size: 10.5px; padding: 2px 7px;"
+              title="Refresh subject and body from current template">🔄 Sync from Template</button>
+          </div>
+
+          <div id="spamCheckContentFields" style="display: flex; flex-direction: column; gap: 8px;">
+            <div>
+              <label class="setting-label" for="spamCheckSubject">Test Subject:</label>
+              <input type="text" id="spamCheckSubject" class="setting-input" style="width: 100%; margin-top: 3px;"
+                placeholder="e.g. Quick question regarding partnership">
+            </div>
+            <div>
+              <label class="setting-label" for="spamCheckBody">Test Email Body:</label>
+              <textarea id="spamCheckBody" class="code-textarea" style="height: 70px; margin-top: 3px;"
+                placeholder="Write or edit test body content..." spellcheck="false"></textarea>
+            </div>
+          </div>
+        </div>
+
+        <!-- Load Button & Status Banner -->
+        <div style="display: flex; justify-content: flex-end; margin-top: 10px;">
+          <button id="loadSpamCheckBtn" class="btn btn-primary">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+            </svg>
+            Load Spam-Check Leads
+          </button>
+        </div>
+        <div id="spamCheckBanner" class="banner"></div>
+
+        <!-- DEDICATED SPAM-CHECK QUEUE (Isolated from normal campaign leads) -->
+        <div style="margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border-subtle);">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; flex-wrap: wrap; gap: 6px;">
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <span style="font-size: 12px; font-weight: 700; color: var(--text-main);">🛡️ Spam-Check Test Queue</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <button id="startSpamCheckQueueBtn" class="btn btn-success btn-xs"
+                title="Auto-send all pending spam-check emails sequentially">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polygon points="5 3 19 12 5 21 5 3" />
+                </svg>
+                Auto-Send Tests
+              </button>
+              <button id="resetSpamCheckStatusBtn" class="btn btn-secondary btn-xs"
+                title="Reset all test statuses to pending">Reset</button>
+              <button id="clearAllSpamCheckBtn" class="btn btn-outline-danger btn-xs"
+                title="Clear all loaded test leads">Clear</button>
+            </div>
+          </div>
+
+          <!-- Queue Progress / Status Line -->
+          <div id="spamCheckQueueStatus" style="font-size: 11px; color: var(--text-muted); margin-bottom: 8px; font-style: italic;">
+            Ready to test deliverability.
+          </div>
+
+          <!-- Dedicated Leads List Container for Spam-Check -->
+          <div id="spamCheckContainer" class="leads-list" style="max-height: 240px; overflow-y: auto;">
+            <!-- Dynamic test lead cards rendered here -->
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SECTION: Anti-Sleep & Keep PC Awake Timer (Collapsible & Toggleable in Settings) -->
+  <section id="sectionAntiSleep" class="card collapsible-section anti-sleep-card">
+    <div class="section-collapse-header" data-collapse-target="sectionAntiSleep">
+      <div class="section-collapse-title">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M18 8h1a4 4 0 0 1 0 8h-1" />
+          <path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z" />
+          <line x1="6" y1="1" x2="6" y2="4" />
+          <line x1="10" y1="1" x2="10" y2="4" />
+          <line x1="14" y1="1" x2="14" y2="4" />
+        </svg>
+        <span>Anti-Sleep & Keep PC Awake</span>
+        <div id="antiSleepStatusPill" class="anti-sleep-pill idle">
+          <span class="anti-sleep-dot"></span>
+          <span id="antiSleepStatusLabel">IDLE</span>
+        </div>
+      </div>
+      <div class="section-collapse-actions">
+        <span class="collapse-icon">▼</span>
+      </div>
+    </div>
+
+    <div class="section-collapsible-content">
+      <div style="background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 12px; margin-top: 10px;">
+        <div style="font-size: 11.5px; color: var(--text-muted); line-height: 1.45; margin-bottom: 10px;">
+          Keep your PC, monitor, and OS awake while automated Gmail queues are sending, preventing network drops and tab sleep.
+        </div>
+
+        <div class="anti-sleep-controls-grid">
+          <div class="setting-item" style="flex: 1; min-width: 140px;">
+            <label class="setting-label" for="antiSleepDurationSelect">Keep Awake For:</label>
+            <select id="antiSleepDurationSelect" class="setting-input" style="width: 100%; margin-top: 3px;">
+              <option value="queue">While Queue is Sending</option>
+              <option value="15">15 Minutes</option>
+              <option value="30">30 Minutes</option>
+              <option value="60" selected>1 Hour</option>
+              <option value="120">2 Hours</option>
+              <option value="240">4 Hours</option>
+              <option value="480">8 Hours</option>
+              <option value="indefinite">Indefinite (Until stopped)</option>
+              <option value="custom">Custom Minutes...</option>
+            </select>
+          </div>
+
+          <div id="antiSleepCustomContainer" class="setting-item" style="display: none; width: 90px;">
+            <label class="setting-label" for="antiSleepCustomMinutesInput">Minutes:</label>
+            <input type="number" id="antiSleepCustomMinutesInput" class="setting-input" style="width: 100%; margin-top: 3px;" min="5" max="1440" value="90">
+          </div>
+
+          <div style="display: flex; align-items: flex-end; gap: 8px;">
+            <button id="toggleAntiSleepBtn" type="button" class="btn btn-success btn-xs" style="padding: 7px 14px; font-weight: 600;">
+              ☕ Keep PC Awake
+            </button>
+          </div>
+        </div>
+
+        <!-- Live Countdown / Active Info Box -->
+        <div id="antiSleepActiveInfo" class="anti-sleep-active-box" style="display: none; margin-top: 10px;">
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span class="pulsing-coffee" style="font-size: 16px;">☕</span>
+              <div>
+                <strong id="antiSleepCountdownText" style="font-size: 12.5px; color: var(--success);">Awake (00:00:00 remaining)</strong>
+                <div id="antiSleepReasonText" style="font-size: 10.5px; color: var(--text-dim);">Display & system sleep lock active</div>
+              </div>
+            </div>
+            <button id="cancelAntiSleepQuickBtn" type="button" class="btn btn-outline-danger btn-xs">Release Lock</button>
+          </div>
+        </div>
+
+        <!-- Queue Auto-Wake Checkbox -->
+        <div style="margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border-subtle); display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+          <label class="checkbox-setting" style="margin-top: 0;">
+            <input type="checkbox" id="autoKeepAwakeOnQueueCheckbox" checked>
+            <span style="font-size: 11.5px; color: var(--text-main); font-weight: 600;">Auto-Keep Awake during queue sending</span>
+          </label>
+          <span style="font-size: 10.5px; color: var(--text-dim);">Keeps screen on during dispatch</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SECTION 2: Queue Dispatcher & Controls (Collapsible) -->
+  <section id="sectionQueue" class="queue-monitor collapsible-section">
+    <div class="section-collapse-header" data-collapse-target="sectionQueue">
+      <div class="section-collapse-title">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polygon points="5 3 19 12 5 21 5 3" />
+        </svg>
+        <span>Midey Queue Dispatcher</span>
+        <div id="liveIndicator" class="live-indicator">
+          <span class="dot"></span>
+          <span id="liveStatusLabel">IDLE</span>
+        </div>
+      </div>
+      <div class="section-collapse-actions">
+        <span class="collapse-icon">▼</span>
+      </div>
+    </div>
+
+    <div class="section-collapsible-content">
+      <div id="queueStatusMessage" class="monitor-status-text" style="margin-top: 10px;">Ready to dispatch leads.</div>
+
+      <div class="progress-bar-container">
+        <div id="progressBarFill" class="progress-bar-fill"></div>
+      </div>
+
+      <!-- Main Queue Controls -->
+      <div class="queue-controls-row">
+        <button id="startQueueBtn" class="btn btn-success">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polygon points="5 3 19 12 5 21 5 3" />
+          </svg>
+          Auto-Send All Pending
+        </button>
+        <button id="stopQueueBtn" class="btn btn-danger" disabled>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect width="18" height="18" x="3" y="3" rx="2" ry="2" />
+          </svg>
+          Stop Queue
+        </button>
+      </div>
+
+      <!-- Auto-Send Execution Mode Switch -->
+      <div id="sendModeCard" class="send-mode-card">
+        <div class="send-mode-info">
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <span class="send-mode-title">Auto-Send Mode:</span>
+            <span id="sendModeBadge" class="brand-tag">Original (New Tab)</span>
+          </div>
+          <div id="sendModeDesc" class="send-mode-desc">
+            Sends via background compose tab (?view=cm) & auto-closes.
+          </div>
+        </div>
+        <label class="switch-toggle" title="Toggle between In-Page (Like Manual + Send) and Original (New Tab)">
+          <input type="checkbox" id="inPageAutoSendInput">
+          <span class="slider round"></span>
+        </label>
+      </div>
+
+      <!-- BCC Batch Sending Card -->
+      <div id="bccModeCard" class="send-mode-card" style="margin-top: 8px;">
+        <div class="send-mode-info">
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <span class="send-mode-title">BCC Batch Mode:</span>
+            <span id="bccModeBadge" class="brand-tag">Individual (1-by-1)</span>
+          </div>
+          <div id="bccModeDesc" class="send-mode-desc">
+            Send each lead in its own individual email.
+          </div>
+        </div>
+        <label class="switch-toggle" title="Toggle between 1-by-1 individual sending and BCC batch sending">
+          <input type="checkbox" id="enableBccModeInput">
+          <span class="slider round"></span>
+        </label>
+      </div>
+
+      <!-- BCC Batch Options (Visible when BCC toggle is ON) -->
+      <div id="bccSettingsContent"
+        style="display: none; margin-top: 6px; padding: 8px 10px; background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm);">
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+          <div>
+            <label class="setting-label" for="bccBatchSizeInput" style="font-size: 11.5px; font-weight: 600;">Number to
+              send at a go:</label>
+            <div style="font-size: 10px; color: var(--text-dim); margin-top: 2px;">Groups this many leads into BCC per
+              email</div>
+          </div>
+          <input type="number" id="bccBatchSizeInput" class="setting-input"
+            style="width: 65px; text-align: center; font-weight: 600;" min="2" max="100" value="10">
+        </div>
+      </div>
+
+      <!-- Gmail Confidential Mode Card -->
+      <div id="confidentialModeCard" class="send-mode-card" style="margin-top: 8px;">
+        <div class="send-mode-info">
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <span class="send-mode-title">🔒 Confidential Mode:</span>
+            <span id="confidentialModeBadge" class="brand-tag">Off</span>
+          </div>
+          <div id="confidentialModeDesc" class="send-mode-desc">
+            Set email expiration date & prevent recipients from forwarding, copying, or printing.
+          </div>
+        </div>
+        <label class="switch-toggle" title="Toggle Gmail Confidential Mode on/off for sent emails">
+          <input type="checkbox" id="enableConfidentialModeInput">
+          <span class="slider round"></span>
+        </label>
+      </div>
+
+      <!-- Confidential Mode Options (Visible when toggle is ON) -->
+      <div id="confidentialSettingsContent"
+        style="display: none; margin-top: 6px; padding: 8px 10px; background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm);">
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;">
+          <div style="flex: 1; min-width: 140px;">
+            <label class="setting-label" for="confidentialExpirationSelect" style="font-size: 11.5px; font-weight: 600;">Expiration Period:</label>
+            <select id="confidentialExpirationSelect" class="setting-input" style="width: 100%; margin-top: 3px;">
+              <option value="1d">Expires in 1 day</option>
+              <option value="1w" selected>Expires in 1 week (Recommended)</option>
+              <option value="1m">Expires in 1 month</option>
+              <option value="3m">Expires in 3 months</option>
+              <option value="5y">Expires in 5 years</option>
+            </select>
+          </div>
+          <div style="font-size: 10.5px; color: var(--text-muted); margin-top: 4px; line-height: 1.35; width: 100%;">
+            🔒 Emails sent with Confidential Mode automatically expire on Gmail's servers and block recipient downloading, copying, or forwarding.
+          </div>
+        </div>
+      </div>
+
+      <!-- Sub-Collapsible Delay & Tab Settings -->
+      <div id="toggleDelaySettingsBtn" class="settings-sub-toggle">
+        <div style="display: flex; align-items: center; gap: 6px;">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10" />
+            <polyline points="12 6 12 12 16 14" />
+          </svg>
+          <span>Anti-Detection Delay & Timings (<strong id="delaySummaryText">20s - 40s</strong>)</span>
+        </div>
+        <span id="delayChevron" class="collapse-sub-icon">▼</span>
+      </div>
+
+      <div id="delaySettingsContent" class="settings-grid">
+        <div class="setting-item">
+          <label class="setting-label" for="minDelayInput">Min Delay (sec)</label>
+          <input type="number" id="minDelayInput" class="setting-input" min="5" max="300" value="20">
+        </div>
+        <div class="setting-item">
+          <label class="setting-label" for="maxDelayInput">Max Delay (sec)</label>
+          <input type="number" id="maxDelayInput" class="setting-input" min="5" max="600" value="40">
+        </div>
+        <label class="checkbox-setting">
+          <input type="checkbox" id="autoCloseTabInput" checked>
+          <span>Close tab after send</span>
+        </label>
+      </div>
+    </div>
+  </section>
+
+  <!-- SECTION 3: Current Batch Statistics Bar -->
+  <div id="sectionStats" class="stats-bar">
+    <div class="stat-pill">Total: <strong id="statTotal">0</strong></div>
+    <div class="stat-pill pending">Pending: <strong id="statPending">0</strong></div>
+    <div class="stat-pill sent">Sent: <strong id="statSent">0</strong></div>
+    <div class="stat-pill error">Errors: <strong id="statError">0</strong></div>
+  </div>
+
+  <!-- SECTION 7: Leads Search & Quick Actions Bar -->
+  <div id="sectionFilterBar" class="leads-bar">
+    <input type="text" id="searchInput" class="search-input" placeholder="Filter leads by email, name, or subject...">
+    <button id="exportCsvQuickBtn" class="btn btn-secondary btn-xs" title="Export sent and pending leads to CSV">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+        <polyline points="7 10 12 15 17 10" />
+        <line x1="12" x2="12" y1="3" y2="15" />
+      </svg>
+      CSV
+    </button>
+    <button id="resetStatusBtn" class="btn btn-secondary btn-xs"
+      title="Reset all sent and error leads back to pending">Reset</button>
+    <button id="clearAllBtn" class="btn btn-outline-danger btn-xs" title="Delete all loaded leads">Clear</button>
+  </div>
+
+  <!-- SECTION 8: Leads Queue Container (Collapsible Card) -->
+  <section id="sectionLeads" class="collapsible-section card" style="padding: 12px; margin-bottom: 8px;">
+    <div class="section-collapse-header" data-collapse-target="sectionLeads">
+      <div class="section-collapse-title">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+          <circle cx="9" cy="7" r="4" />
+          <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+          <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+        </svg>
+        <span>Leads Queue</span>
+        <span id="leadsCountBadge" class="brand-tag" style="font-size: 10px;">0 Leads</span>
+      </div>
+      <div class="section-collapse-actions" style="display: flex; align-items: center; gap: 8px;">
+        <button id="toggleDensityBtn" class="btn btn-secondary btn-xs"
+          title="Toggle between Standard Cards and Compact Rows" style="padding: 2px 7px; font-size: 10.5px;">Compact
+          View</button>
+        <span class="collapse-icon">▼</span>
+      </div>
+    </div>
+
+    <div class="section-collapsible-content" style="margin-top: 10px;">
+      <!-- Scrollable Leads Container -->
+      <div id="leadsContainer" class="leads-list">
+        <div class="empty-state">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <rect width="20" height="16" x="2" y="4" rx="2" />
+            <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
+          </svg>
+          <p>No leads loaded yet.</p>
+          <p style="font-size: 11px; color: var(--text-dim); margin-top: 4px;">Upload or paste your CSV above to get
+            started.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Email Details Modal -->
+  <div id="previewModal" class="modal-overlay">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="modalRecipient" style="font-size: 13px; font-weight: 700;">Email Details</h3>
+        <button id="modalCloseBtn" class="btn btn-secondary btn-xs">✕</button>
+      </div>
+      <div>
+        <div style="font-size: 11.5px; color: var(--text-muted); margin-bottom: 4px;">Subject:</div>
+        <div id="modalSubject"
+          style="font-size: 12.5px; font-weight: 600; color: var(--text-main); margin-bottom: 10px;"></div>
+        <div style="font-size: 11.5px; color: var(--text-muted); margin-bottom: 4px;">Body:</div>
+        <div id="modalBody" class="modal-body-content"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Workspace Layout & Minimalism Settings Modal -->
+  <div id="layoutModal" class="modal-overlay">
+    <div class="modal-content" style="max-width: 450px;">
+      <div class="modal-header">
+        <h3 style="font-size: 13.5px; font-weight: 700; display: flex; align-items: center; gap: 6px;">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect width="18" height="18" x="3" y="3" rx="2" ry="2" />
+            <line x1="3" y1="9" x2="21" y2="9" />
+            <line x1="9" y1="21" x2="9" y2="9" />
+          </svg>
+          Homepage Layout & Minimalism
+        </h3>
+        <button id="layoutModalCloseBtn" class="btn btn-secondary btn-xs">✕</button>
+      </div>
+
+      <p style="font-size: 11.5px; color: var(--text-muted); margin-bottom: 12px; line-height: 1.45;">
+        Customize which blocks appear on your homepage to minimize clutter and save room. Preferences persist
+        automatically.
+      </p>
+
+      <!-- Quick Preset Mode Buttons -->
+      <div style="display: flex; gap: 6px; margin-bottom: 14px;">
+        <button id="presetMinimalBtn" class="btn btn-primary btn-xs" style="flex: 1;"
+          title="Hide Importer; show only Queue & Compact Leads">
+          🎯 Pure Dispatcher
+        </button>
+        <button id="presetPrepareBtn" class="btn btn-secondary btn-xs" style="flex: 1;"
+          title="Focus on importing and preparing templates">
+          📥 Importer Focus
+        </button>
+        <button id="presetFullBtn" class="btn btn-secondary btn-xs" style="flex: 1;" title="Show all homepage blocks">
+          🔄 Show All
+        </button>
+      </div>
+
+      <!-- Section Visibility Checkboxes -->
+      <div class="layout-toggle-list">
+        <label class="layout-toggle-item">
+          <input type="checkbox" id="layoutShowAnalytics" checked>
+          <div class="layout-toggle-info">
+            <span class="layout-toggle-title">📈 Global Dispatch Analytics</span>
+            <span class="layout-toggle-desc">Today's sends, 7-day rolling performance & lifetime record</span>
+          </div>
+        </label>
+
+        <label class="layout-toggle-item">
+          <input type="checkbox" id="layoutShowImport" checked>
+          <div class="layout-toggle-info">
+            <span class="layout-toggle-title">📥 Lead Data Hub (Import & Export)</span>
+            <span class="layout-toggle-desc">CSV file dropzone, raw pasting & CSV export report</span>
+          </div>
+        </label>
+
+        <label class="layout-toggle-item">
+          <input type="checkbox" id="layoutShowContent" checked>
+          <div class="layout-toggle-info">
+            <span class="layout-toggle-title">✍️ Message Content & Signatures</span>
+            <span class="layout-toggle-desc">Subject & body templates, personalization tags, content sync & footer signatures</span>
+          </div>
+        </label>
+
+        <label class="layout-toggle-item">
+          <input type="checkbox" id="layoutShowFilterPrioritize" checked>
+          <div class="layout-toggle-info">
+            <span class="layout-toggle-title">⚡ Lead Prioritization & Excel Filters</span>
+            <span class="layout-toggle-desc">Multi-rule filtering on headers (Country, Domain, etc.) and send-first prioritization</span>
+          </div>
+        </label>
+
+        <label class="layout-toggle-item">
+          <input type="checkbox" id="layoutShowSpamCheck" checked>
+          <div class="layout-toggle-info">
+            <span class="layout-toggle-title">🛡️ Spam-Check & Deliverability Tester</span>
+            <span class="layout-toggle-desc">Dedicated deliverability test queue and inbox verification</span>
+          </div>
+        </label>
+
+        <label class="layout-toggle-item">
+          <input type="checkbox" id="layoutShowQueue" checked>
+          <div class="layout-toggle-info">
+            <span class="layout-toggle-title">⚡ Queue Dispatcher & Controls</span>
+            <span class="layout-toggle-desc">Auto-send controls, delay timings & progress monitor</span>
+          </div>
+        </label>
+
+        <label class="layout-toggle-item">
+          <input type="checkbox" id="layoutShowStats" checked>
+          <div class="layout-toggle-info">
+            <span class="layout-toggle-title">📊 Current Batch Statistics Bar</span>
+            <span class="layout-toggle-desc">Total, Pending, Sent, and Error count summary</span>
+          </div>
+        </label>
+
+        <label class="layout-toggle-item">
+          <input type="checkbox" id="layoutShowFilterBar" checked>
+          <div class="layout-toggle-info">
+            <span class="layout-toggle-title">🔍 Search & Quick Actions Bar</span>
+            <span class="layout-toggle-desc">Search box, and reset/clear queue buttons</span>
+          </div>
+        </label>
+
+        <label class="layout-toggle-item">
+          <input type="checkbox" id="layoutShowLeads" checked>
+          <div class="layout-toggle-info">
+            <span class="layout-toggle-title">📋 Leads Queue List</span>
+            <span class="layout-toggle-desc">Display the list of leads loaded for dispatching</span>
+          </div>
+        </label>
+
+        <label class="layout-toggle-item">
+          <input type="checkbox" id="layoutShowAntiSleep" checked>
+          <div class="layout-toggle-info">
+            <span class="layout-toggle-title">☕ Anti-Sleep Keep-Awake Timer</span>
+            <span class="layout-toggle-desc">Prevent computer from sleeping with timer & queue watchdog</span>
+          </div>
+        </label>
+
+        <label class="layout-toggle-item">
+          <input type="checkbox" id="layoutEnableMultiContent">
+          <div class="layout-toggle-info">
+            <span class="layout-toggle-title">🔀 Multi-Content & Rotation Manager</span>
+            <span class="layout-toggle-desc">Enable multiple subjects and bodies with individual/both rotation (sequential/random)</span>
+          </div>
+        </label>
+
+        <label class="layout-toggle-item">
+          <input type="checkbox" id="layoutShowConfidentialMode" checked>
+          <div class="layout-toggle-info">
+            <span class="layout-toggle-title">🔒 Gmail Confidential Mode Switch</span>
+            <span class="layout-toggle-desc">Show/hide Confidential Mode expiration & anti-forwarding toggle in queue settings</span>
+          </div>
+        </label>
+      </div>
+
+      <!-- Density Preference -->
+      <div
+        style="margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--border-subtle); display: flex; align-items: center; justify-content: space-between;">
+        <div>
+          <div style="font-size: 11.5px; font-weight: 600; color: var(--text-main);">Leads Display Density</div>
+          <div style="font-size: 10.5px; color: var(--text-dim);">Ultra-compact single line vs full cards</div>
+        </div>
+        <select id="densitySelect" class="setting-input" style="padding: 4px 8px; font-size: 11.5px;">
+          <option value="compact">Compact (Minimalist Rows)</option>
+          <option value="standard">Standard (Full Cards)</option>
+        </select>
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; margin-top: 14px;">
+        <button id="layoutModalDoneBtn" class="btn btn-primary btn-xs">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- PASSWORD PROMPT MODAL (Protected Features: JSON Mode Unlock & Analytics Reset) -->
+  <div id="passwordModal" class="modal-overlay">
+    <div class="modal-content" style="max-width: 370px;">
+      <div class="modal-header">
+        <h3 id="passwordModalTitle"
+          style="font-size: 13.5px; font-weight: 700; display: flex; align-items: center; gap: 6px;">
+          🔐 Authorization Required
+        </h3>
+        <button id="passwordModalCloseBtn" class="btn btn-secondary btn-xs">✕</button>
+      </div>
+
+      <p id="passwordModalPrompt"
+        style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px; line-height: 1.4;">
+        Enter password to continue:
+      </p>
+
+      <div style="position: relative; margin-bottom: 8px;">
+        <input type="password" id="passwordModalInput" class="setting-input"
+          style="width: 100%; padding: 8px 36px 8px 10px; font-size: 13px; letter-spacing: 1px;"
+          placeholder="Enter password...">
+        <button type="button" id="togglePasswordVisibilityBtn"
+          style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 13px; padding: 2px;"
+          title="Show/hide password">👁️</button>
+      </div>
+
+      <div id="passwordModalError"
+        style="font-size: 11.5px; color: var(--danger); display: none; margin-bottom: 10px; font-weight: 500;">
+        Incorrect password. Please try again.
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px;">
+        <button id="passwordModalCancelBtn" class="btn btn-secondary btn-xs">Cancel</button>
+        <button id="passwordModalSubmitBtn" class="btn btn-primary btn-xs">Confirm</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+
+</html>
