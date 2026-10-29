@@ -328,12 +328,27 @@ const confidentialSettingsContent = document.getElementById('confidentialSetting
 const confidentialExpirationSelect = document.getElementById('confidentialExpirationSelect');
 const enableConfidentialCoordsOverride = document.getElementById('enableConfidentialCoordsOverride');
 const confidentialCoordsDetails = document.getElementById('confidentialCoordsDetails');
+const coordsMode3PointBtn = document.getElementById('coordsMode3PointBtn');
+const coordsMode2PointBtn = document.getElementById('coordsMode2PointBtn');
 const pickConfidentialCoordsBtn = document.getElementById('pickConfidentialCoordsBtn');
 const testConfidentialCoordsBtn = document.getElementById('testConfidentialCoordsBtn');
 const clearConfidentialCoordsBtn = document.getElementById('clearConfidentialCoordsBtn');
+const coordsGridContainer = document.getElementById('coordsGridContainer');
+const coordsCardPoint1 = document.getElementById('coordsCardPoint1');
+const coordsLabelPoint1 = document.getElementById('coordsLabelPoint1');
 const coordsDisplayPoint1 = document.getElementById('coordsDisplayPoint1');
+const coordsCardPoint2 = document.getElementById('coordsCardPoint2');
+const coordsLabelPoint2 = document.getElementById('coordsLabelPoint2');
 const coordsDisplayPoint2 = document.getElementById('coordsDisplayPoint2');
-const confidentialCoordsDelayInput = document.getElementById('confidentialCoordsDelayInput');
+const coordsCardPoint3 = document.getElementById('coordsCardPoint3');
+const coordsLabelPoint3 = document.getElementById('coordsLabelPoint3');
+const coordsDisplayPoint3 = document.getElementById('coordsDisplayPoint3');
+const confidentialCoordsDelay1Container = document.getElementById('confidentialCoordsDelay1Container');
+const confidentialCoordsDelay1Label = document.getElementById('confidentialCoordsDelay1Label');
+const confidentialCoordsDelay1Input = document.getElementById('confidentialCoordsDelay1Input');
+const confidentialCoordsDelay2Container = document.getElementById('confidentialCoordsDelay2Container');
+const confidentialCoordsDelay2Label = document.getElementById('confidentialCoordsDelay2Label');
+const confidentialCoordsDelay2Input = document.getElementById('confidentialCoordsDelay2Input');
 const layoutShowConfidentialMode = document.getElementById('layoutShowConfidentialMode');
 
 // DOM Elements - Stats & Utilities
@@ -1169,10 +1184,38 @@ function setupEventListeners() {
     });
   }
 
+  if (coordsMode3PointBtn) {
+    coordsMode3PointBtn.addEventListener('click', async () => {
+      currentSettings.confidentialCoordinates = {
+        ...(currentSettings.confidentialCoordinates || {}),
+        mode: '3point'
+      };
+      updateConfidentialCoordsUI(currentSettings.enableConfidentialCoordsOverride, currentSettings.confidentialCoordinates);
+      await chrome.storage.local.set({ settings: currentSettings });
+      showBanner(statusBanner, 'Switched to 3-Point Calibration Mode (3-Dot Menu -> Confidential Item -> Save Button).', 'info');
+    });
+  }
+
+  if (coordsMode2PointBtn) {
+    coordsMode2PointBtn.addEventListener('click', async () => {
+      currentSettings.confidentialCoordinates = {
+        ...(currentSettings.confidentialCoordinates || {}),
+        mode: '2point'
+      };
+      updateConfidentialCoordsUI(currentSettings.enableConfidentialCoordsOverride, currentSettings.confidentialCoordinates);
+      await chrome.storage.local.set({ settings: currentSettings });
+      showBanner(statusBanner, 'Switched to 2-Point Calibration Mode (Direct Toolbar Button -> Save Button).', 'info');
+    });
+  }
+
   if (pickConfidentialCoordsBtn) {
     pickConfidentialCoordsBtn.addEventListener('click', async () => {
-      showBanner(statusBanner, '🎯 Opening Calibrator HUD on Gmail... Switch to your Gmail tab to calibrate coordinates.', 'info');
-      const response = await chrome.runtime.sendMessage({ action: 'START_COORDINATE_PICKER' });
+      const mode = currentSettings.confidentialCoordinates?.mode || '3point';
+      showBanner(statusBanner, `🎯 Opening ${mode === '3point' ? '3-Point (3-Dot)' : '2-Point'} Calibrator HUD on Gmail... Switch to your Gmail tab to calibrate.`, 'info');
+      const response = await chrome.runtime.sendMessage({ 
+        action: 'START_COORDINATE_PICKER',
+        mode
+      });
       if (!response?.success) {
         showBanner(statusBanner, response?.error || 'Failed to start coordinate calibrator.', 'error');
       }
@@ -1192,23 +1235,43 @@ function setupEventListeners() {
 
   if (clearConfidentialCoordsBtn) {
     clearConfidentialCoordsBtn.addEventListener('click', async () => {
+      const mode = currentSettings.confidentialCoordinates?.mode || '3point';
       currentSettings = {
         ...currentSettings,
-        enableConfidentialCoordsOverride: false,
-        confidentialCoordinates: { point1: null, point2: null, delayMs: 350 }
+        confidentialCoordinates: {
+          mode,
+          point1: null,
+          point2: null,
+          point3: null,
+          delayMs: 350,
+          delay1Ms: 350,
+          delay2Ms: 400
+        }
       };
-      updateConfidentialCoordsUI(false, currentSettings.confidentialCoordinates);
+      updateConfidentialCoordsUI(currentSettings.enableConfidentialCoordsOverride, currentSettings.confidentialCoordinates);
       await chrome.storage.local.set({ settings: currentSettings });
       showBanner(statusBanner, 'Custom coordinates reset.', 'info');
     });
   }
 
-  if (confidentialCoordsDelayInput) {
-    confidentialCoordsDelayInput.addEventListener('change', async (e) => {
-      const ms = Math.max(100, Math.min(2000, parseInt(e.target.value, 10) || 350));
+  if (confidentialCoordsDelay1Input) {
+    confidentialCoordsDelay1Input.addEventListener('change', async (e) => {
+      const ms = Math.max(100, Math.min(3000, parseInt(e.target.value, 10) || 350));
       currentSettings.confidentialCoordinates = {
         ...(currentSettings.confidentialCoordinates || {}),
+        delay1Ms: ms,
         delayMs: ms
+      };
+      await chrome.storage.local.set({ settings: currentSettings });
+    });
+  }
+
+  if (confidentialCoordsDelay2Input) {
+    confidentialCoordsDelay2Input.addEventListener('change', async (e) => {
+      const ms = Math.max(100, Math.min(3000, parseInt(e.target.value, 10) || 400));
+      currentSettings.confidentialCoordinates = {
+        ...(currentSettings.confidentialCoordinates || {}),
+        delay2Ms: ms
       };
       await chrome.storage.local.set({ settings: currentSettings });
     });
@@ -1680,26 +1743,82 @@ function updateConfidentialCoordsUI(overrideEnabled, coords) {
     confidentialCoordsDetails.style.display = overrideEnabled ? 'block' : 'none';
   }
   const c = coords || {};
+  const mode = c.mode || '3point';
+
+  // Toggle Mode button styling
+  if (coordsMode3PointBtn && coordsMode2PointBtn) {
+    if (mode === '3point') {
+      coordsMode3PointBtn.className = 'btn btn-primary btn-xs';
+      coordsMode2PointBtn.className = 'btn btn-secondary btn-xs';
+    } else {
+      coordsMode3PointBtn.className = 'btn btn-secondary btn-xs';
+      coordsMode2PointBtn.className = 'btn btn-primary btn-xs';
+    }
+  }
+
+  // Adjust Grid & Labels
+  if (coordsGridContainer) {
+    coordsGridContainer.style.gridTemplateColumns = mode === '3point' ? '1fr 1fr 1fr' : '1fr 1fr';
+  }
+
+  if (coordsLabelPoint1) {
+    coordsLabelPoint1.textContent = mode === '3point' ? 'Point 1 (3-Dot):' : 'Point 1 (Confidential):';
+  }
+  if (coordsLabelPoint2) {
+    coordsLabelPoint2.textContent = mode === '3point' ? 'Point 2 (Confidential):' : 'Point 2 (Save):';
+  }
+  if (coordsCardPoint3) {
+    coordsCardPoint3.style.display = mode === '3point' ? 'block' : 'none';
+  }
+
+  // Point 1 Display
   if (coordsDisplayPoint1) {
     if (c.point1) {
-      coordsDisplayPoint1.textContent = `X: ${c.point1.x}, Y: ${c.point1.y}`;
+      coordsDisplayPoint1.textContent = `X:${c.point1.x}, Y:${c.point1.y}`;
       coordsDisplayPoint1.style.color = 'var(--primary)';
     } else {
       coordsDisplayPoint1.textContent = 'Not Set';
       coordsDisplayPoint1.style.color = 'var(--text-dim)';
     }
   }
+
+  // Point 2 Display
   if (coordsDisplayPoint2) {
     if (c.point2) {
-      coordsDisplayPoint2.textContent = `X: ${c.point2.x}, Y: ${c.point2.y}`;
-      coordsDisplayPoint2.style.color = 'var(--success)';
+      coordsDisplayPoint2.textContent = `X:${c.point2.x}, Y:${c.point2.y}`;
+      coordsDisplayPoint2.style.color = mode === '3point' ? '#f59e0b' : 'var(--success)';
     } else {
       coordsDisplayPoint2.textContent = 'Not Set';
       coordsDisplayPoint2.style.color = 'var(--text-dim)';
     }
   }
-  if (confidentialCoordsDelayInput && document.activeElement !== confidentialCoordsDelayInput) {
-    confidentialCoordsDelayInput.value = c.delayMs || 350;
+
+  // Point 3 Display (3-Point mode only)
+  if (coordsDisplayPoint3) {
+    if (mode === '3point' && c.point3) {
+      coordsDisplayPoint3.textContent = `X:${c.point3.x}, Y:${c.point3.y}`;
+      coordsDisplayPoint3.style.color = 'var(--success)';
+    } else {
+      coordsDisplayPoint3.textContent = 'Not Set';
+      coordsDisplayPoint3.style.color = 'var(--text-dim)';
+    }
+  }
+
+  // Interval Delays
+  if (confidentialCoordsDelay1Label) {
+    confidentialCoordsDelay1Label.textContent = mode === '3point'
+      ? 'Interval after Point 1 (open menu):'
+      : 'Interval after Point 1 (open dialog):';
+  }
+  if (confidentialCoordsDelay1Input && document.activeElement !== confidentialCoordsDelay1Input) {
+    confidentialCoordsDelay1Input.value = c.delay1Ms || c.delayMs || 350;
+  }
+
+  if (confidentialCoordsDelay2Container) {
+    confidentialCoordsDelay2Container.style.display = mode === '3point' ? 'flex' : 'none';
+  }
+  if (confidentialCoordsDelay2Input && document.activeElement !== confidentialCoordsDelay2Input) {
+    confidentialCoordsDelay2Input.value = c.delay2Ms || 400;
   }
 }
 

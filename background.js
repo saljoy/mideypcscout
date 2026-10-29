@@ -236,9 +236,13 @@ async function handleRuntimeMessage(message, sender) {
         return { success: false, error: 'Please open Gmail (mail.google.com) in your browser before calibrating coordinates.' };
       }
 
+      const { settings = {} } = await chrome.storage.local.get('settings');
+      const targetMode = message?.mode || settings.confidentialCoordinates?.mode || '3point';
+
       await chrome.scripting.executeScript({
         target: { tabId: targetTab.id },
-        func: injectedCoordinatePickerScript
+        func: injectedCoordinatePickerScript,
+        args: [targetMode]
       });
 
       return { success: true };
@@ -248,10 +252,20 @@ async function handleRuntimeMessage(message, sender) {
       const { coords } = message || {};
       if (coords) {
         const { settings = {} } = await chrome.storage.local.get('settings');
+        const existing = settings.confidentialCoordinates || {};
+        const updatedCoords = {
+          mode: coords.mode || existing.mode || '3point',
+          point1: coords.point1 !== undefined ? coords.point1 : (existing.point1 || null),
+          point2: coords.point2 !== undefined ? coords.point2 : (existing.point2 || null),
+          point3: coords.point3 !== undefined ? coords.point3 : (existing.point3 || null),
+          delayMs: coords.delay1Ms || coords.delayMs || existing.delay1Ms || existing.delayMs || 350,
+          delay1Ms: coords.delay1Ms || coords.delayMs || existing.delay1Ms || 350,
+          delay2Ms: coords.delay2Ms || existing.delay2Ms || 400
+        };
         const updatedSettings = {
           ...settings,
           enableConfidentialCoordsOverride: true,
-          confidentialCoordinates: coords
+          confidentialCoordinates: updatedCoords
         };
         await chrome.storage.local.set({ settings: updatedSettings });
         return { success: true, settings: updatedSettings };
@@ -330,7 +344,7 @@ async function initializeDefaults() {
       enableConfidentialMode: false,
       confidentialExpiration: '1w',
       enableConfidentialCoordsOverride: false,
-      confidentialCoordinates: { point1: null, point2: null, delayMs: 350 }
+      confidentialCoordinates: { mode: '3point', point1: null, point2: null, point3: null, delayMs: 350, delay1Ms: 350, delay2Ms: 400 }
     };
   } else {
     // Ensure new settings exist if settings were already initialized previously
@@ -397,8 +411,21 @@ async function initializeDefaults() {
       settingsChanged = true;
     }
     if (!existingSettings.confidentialCoordinates) {
-      existingSettings.confidentialCoordinates = { point1: null, point2: null, delayMs: 350 };
+      existingSettings.confidentialCoordinates = { mode: '3point', point1: null, point2: null, point3: null, delayMs: 350, delay1Ms: 350, delay2Ms: 400 };
       settingsChanged = true;
+    } else {
+      if (!existingSettings.confidentialCoordinates.mode) {
+        existingSettings.confidentialCoordinates.mode = '3point';
+        settingsChanged = true;
+      }
+      if (existingSettings.confidentialCoordinates.delay1Ms === undefined) {
+        existingSettings.confidentialCoordinates.delay1Ms = existingSettings.confidentialCoordinates.delayMs || 350;
+        settingsChanged = true;
+      }
+      if (existingSettings.confidentialCoordinates.delay2Ms === undefined) {
+        existingSettings.confidentialCoordinates.delay2Ms = 400;
+        settingsChanged = true;
+      }
     }
     if (settingsChanged) {
       updates.settings = existingSettings;
@@ -1328,17 +1355,36 @@ async function injectedGmailSendScript(params) {
           el.dispatchEvent(new MouseEvent('click', opts));
         }
 
-        // Click Point 1 (e.g. Confidential icon or 3-dot More Options button)
-        clickAtPoint(coordsConfig.point1.x, coordsConfig.point1.y);
-        await localSleep(coordsConfig.delayMs || 350);
+        const is3Point = coordsConfig.mode === '3point' || Boolean(coordsConfig.point3);
+        const delay1 = coordsConfig.delay1Ms || coordsConfig.delayMs || 350;
+        const delay2 = coordsConfig.delay2Ms || 400;
 
-        // Click Point 2 (e.g. Confidential menu item or Save button)
-        if (coordsConfig.point2) {
-          clickAtPoint(coordsConfig.point2.x, coordsConfig.point2.y);
-          await localSleep(coordsConfig.delayMs || 350);
+        if (is3Point) {
+          // 3-Point Mode: 3-Dot Menu -> Confidential Item -> Save Button
+          clickAtPoint(coordsConfig.point1.x, coordsConfig.point1.y);
+          await localSleep(delay1);
+
+          if (coordsConfig.point2) {
+            clickAtPoint(coordsConfig.point2.x, coordsConfig.point2.y);
+            await localSleep(delay2);
+          }
+
+          if (coordsConfig.point3) {
+            clickAtPoint(coordsConfig.point3.x, coordsConfig.point3.y);
+            await localSleep(300);
+          }
+        } else {
+          // 2-Point Mode: Direct Toolbar Button -> Save Button
+          clickAtPoint(coordsConfig.point1.x, coordsConfig.point1.y);
+          await localSleep(delay1);
+
+          if (coordsConfig.point2) {
+            clickAtPoint(coordsConfig.point2.x, coordsConfig.point2.y);
+            await localSleep(300);
+          }
         }
 
-        // If a Confidential dialog is open with a Save button, ensure Save is clicked
+        // If a Confidential dialog is still open with a Save button, ensure Save is clicked as fallback
         const confDialog = findOpenConfidentialDialog();
         if (confDialog) {
           const saveBtn = findSaveBtn(confDialog);
@@ -2034,17 +2080,36 @@ async function injectedInPageComposeScript(leadData) {
           el.dispatchEvent(new MouseEvent('click', opts));
         }
 
-        // Click Point 1 (e.g. Confidential icon or 3-dot More Options button)
-        clickAtPoint(coordsConfig.point1.x, coordsConfig.point1.y);
-        await localSleep(coordsConfig.delayMs || 350);
+        const is3Point = coordsConfig.mode === '3point' || Boolean(coordsConfig.point3);
+        const delay1 = coordsConfig.delay1Ms || coordsConfig.delayMs || 350;
+        const delay2 = coordsConfig.delay2Ms || 400;
 
-        // Click Point 2 (e.g. Confidential menu item or Save button)
-        if (coordsConfig.point2) {
-          clickAtPoint(coordsConfig.point2.x, coordsConfig.point2.y);
-          await localSleep(coordsConfig.delayMs || 350);
+        if (is3Point) {
+          // 3-Point Mode: 3-Dot Menu -> Confidential Item -> Save Button
+          clickAtPoint(coordsConfig.point1.x, coordsConfig.point1.y);
+          await localSleep(delay1);
+
+          if (coordsConfig.point2) {
+            clickAtPoint(coordsConfig.point2.x, coordsConfig.point2.y);
+            await localSleep(delay2);
+          }
+
+          if (coordsConfig.point3) {
+            clickAtPoint(coordsConfig.point3.x, coordsConfig.point3.y);
+            await localSleep(300);
+          }
+        } else {
+          // 2-Point Mode: Direct Toolbar Button -> Save Button
+          clickAtPoint(coordsConfig.point1.x, coordsConfig.point1.y);
+          await localSleep(delay1);
+
+          if (coordsConfig.point2) {
+            clickAtPoint(coordsConfig.point2.x, coordsConfig.point2.y);
+            await localSleep(300);
+          }
         }
 
-        // If a Confidential dialog is open with a Save button, ensure Save is clicked
+        // If a Confidential dialog is still open with a Save button, ensure Save is clicked as fallback
         const confDialog = findOpenConfidentialDialog();
         if (confDialog) {
           const saveBtn = findSaveBtn(confDialog);
@@ -2702,15 +2767,21 @@ async function getCurrentWindowId() {
 
 /**
  * Injected script: Interactive Coordinate Calibrator & Picker HUD
- * Allows point-and-click coordinate capturing on Gmail window for Side Panel & custom theme setups.
+ * Allows point-and-click coordinate capturing on Gmail window for Side Panel (3-point) & full screen (2-point) setups.
  */
-function injectedCoordinatePickerScript() {
+function injectedCoordinatePickerScript(targetMode) {
   const existing = document.getElementById('midey-calibrator-overlay');
   if (existing) existing.remove();
+
+  const mode = targetMode === '2point' ? '2point' : '3point';
+  const totalSteps = mode === '3point' ? 3 : 2;
 
   let currentStep = 1;
   let point1 = null;
   let point2 = null;
+  let point3 = null;
+  let isProcessingClick = false;
+  let autoCloseTimer = null;
 
   // Create overlay container
   const overlay = document.createElement('div');
@@ -2721,7 +2792,7 @@ function injectedCoordinatePickerScript() {
     z-index: 2147483647;
     cursor: crosshair;
     background: rgba(15, 23, 42, 0.28);
-    backdrop-filter: blur(2px);
+    backdrop-filter: blur(1.5px);
     user-select: none;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   `;
@@ -2737,7 +2808,7 @@ function injectedCoordinatePickerScript() {
     background: #111827;
     border: 2px solid #6366f1;
     border-radius: 12px;
-    box-shadow: 0 12px 30px rgba(0,0,0,0.6);
+    box-shadow: 0 12px 35px rgba(0,0,0,0.7);
     padding: 12px 20px;
     color: #f9fafb;
     display: flex;
@@ -2745,36 +2816,40 @@ function injectedCoordinatePickerScript() {
     gap: 16px;
     z-index: 2147483647;
     pointer-events: auto;
+    max-width: 90vw;
   `;
 
   hud.innerHTML = `
-    <div style="width: 38px; height: 38px; border-radius: 10px; background: #4f46e5; display: flex; align-items: center; justify-content: center; font-size: 20px;">
+    <div style="width: 40px; height: 40px; border-radius: 10px; background: #4f46e5; display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0;">
       🎯
     </div>
-    <div>
+    <div style="flex: 1; min-width: 280px;">
       <div id="midey-hud-title" style="font-size: 13.5px; font-weight: 700; color: #ffffff;">
-        Step 1 of 2: Click on the Confidential Button (or the 3-Dot Menu)
+        ${mode === '3point' ? 'Step 1 of 3: Click the 3-Dot ("More options") Menu' : 'Step 1 of 2: Click the Confidential Button'}
       </div>
       <div id="midey-hud-desc" style="font-size: 11px; color: #9ca3af; margin-top: 2px;">
-        Click directly on the button in your Gmail compose box. Press ESC to cancel.
+        ${mode === '3point' ? 'Click directly on the 3-dot button in your compose toolbar. Press ESC to cancel.' : 'Click the lock icon on your Gmail toolbar to open the dialog. Press ESC to cancel.'}
       </div>
     </div>
-    <button id="midey-calibrator-cancel-btn" style="background: rgba(239, 68, 68, 0.2); border: 1px solid rgba(239, 68, 68, 0.4); color: #fca5a5; font-size: 11px; font-weight: 600; padding: 6px 12px; border-radius: 6px; cursor: pointer;">
-      Cancel
-    </button>
+    <div id="midey-hud-actions" style="display: flex; gap: 8px; align-items: center; flex-shrink: 0;">
+      <button id="midey-calibrator-cancel-btn" style="background: rgba(239, 68, 68, 0.2); border: 1px solid rgba(239, 68, 68, 0.4); color: #fca5a5; font-size: 11px; font-weight: 600; padding: 6px 12px; border-radius: 6px; cursor: pointer;">
+        Cancel
+      </button>
+    </div>
   `;
 
   overlay.appendChild(hud);
   document.body.appendChild(overlay);
 
   const cancelBtn = hud.querySelector('#midey-calibrator-cancel-btn');
-  cancelBtn.addEventListener('click', (e) => {
+  cancelBtn?.addEventListener('click', (e) => {
     e.stopPropagation();
     cleanup('Calibration cancelled.');
   });
 
   function addMarker(x, y, num, color) {
     const marker = document.createElement('div');
+    marker.className = 'midey-calibrator-marker';
     marker.style.cssText = `
       position: fixed;
       left: ${x - 14}px;
@@ -2789,7 +2864,7 @@ function injectedCoordinatePickerScript() {
       display: flex;
       align-items: center;
       justify-content: center;
-      box-shadow: 0 0 12px ${color}, 0 4px 8px rgba(0,0,0,0.5);
+      box-shadow: 0 0 14px ${color}, 0 4px 8px rgba(0,0,0,0.5);
       border: 2px solid #ffffff;
       z-index: 2147483647;
       pointer-events: none;
@@ -2799,64 +2874,168 @@ function injectedCoordinatePickerScript() {
   }
 
   function handleDocumentClick(e) {
-    if (e.target === cancelBtn || cancelBtn.contains(e.target)) return;
+    // CRITICAL BUG FIX: Ignore synthetic clicks dispatched via element.dispatchEvent!
+    if (!e.isTrusted) return;
+
+    // Ignore clicks inside the HUD banner itself
+    if (hud.contains(e.target)) return;
+
+    // Prevent re-entry if debounce in progress
+    if (isProcessingClick) return;
 
     e.preventDefault();
     e.stopPropagation();
+    isProcessingClick = true;
 
     const x = Math.round(e.clientX);
     const y = Math.round(e.clientY);
+
+    // Pass click through to underlying element so Gmail's 3-dot menu or dialog actually opens
+    overlay.style.pointerEvents = 'none';
+    const underlying = document.elementFromPoint(x, y);
+    overlay.style.pointerEvents = 'auto';
+
+    if (underlying) {
+      try {
+        const opts = { bubbles: true, cancelable: true, view: window, clientX: x, clientY: y };
+        underlying.dispatchEvent(new MouseEvent('mousedown', opts));
+        underlying.dispatchEvent(new MouseEvent('mouseup', opts));
+        underlying.dispatchEvent(new MouseEvent('click', opts));
+      } catch (_) {}
+    }
 
     if (currentStep === 1) {
       point1 = { x, y };
       addMarker(x, y, '1', '#6366f1');
       currentStep = 2;
 
-      // Pass click to underlying element so Gmail actually opens the 3-dot menu or dialog!
-      overlay.style.pointerEvents = 'none';
-      const underlying = document.elementFromPoint(x, y);
-      if (underlying) {
-        underlying.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
-        underlying.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
-        underlying.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
-      }
-      setTimeout(() => {
-        if (overlay) overlay.style.pointerEvents = 'auto';
-      }, 150);
-
-      // Update HUD
       const titleEl = hud.querySelector('#midey-hud-title');
       const descEl = hud.querySelector('#midey-hud-desc');
-      if (titleEl) titleEl.textContent = 'Step 2 of 2: Click on the Save Button (or Confidential Menu Item)';
-      if (descEl) descEl.textContent = 'Click on the Save button (or the menu item). Press ESC when done.';
+      if (mode === '3point') {
+        if (titleEl) titleEl.textContent = 'Step 2 of 3: Click "Confidential mode" in the Menu';
+        if (descEl) descEl.textContent = 'Click on "Confidential mode" in the opened popup menu.';
+      } else {
+        if (titleEl) titleEl.textContent = 'Step 2 of 2: Click the "Save" Button in the Dialog';
+        if (descEl) descEl.textContent = 'Click the "Save" button inside the Confidential Mode dialog box.';
+      }
+      setTimeout(() => { isProcessingClick = false; }, 350);
+
     } else if (currentStep === 2) {
       point2 = { x, y };
-      addMarker(x, y, '2', '#10b981');
+      addMarker(x, y, '2', mode === '3point' ? '#f59e0b' : '#10b981');
 
-      // Update HUD to success
-      const titleEl = hud.querySelector('#midey-hud-title');
-      const descEl = hud.querySelector('#midey-hud-desc');
-      if (titleEl) {
-        titleEl.textContent = '✅ Coordinates Calibrated Successfully!';
-        titleEl.style.color = '#34d399';
-      }
-      if (descEl) {
-        descEl.textContent = `Point 1: (${point1.x}, ${point1.y}) • Point 2: (${point2.x}, ${point2.y})`;
+      if (mode === '3point') {
+        currentStep = 3;
+        const titleEl = hud.querySelector('#midey-hud-title');
+        const descEl = hud.querySelector('#midey-hud-desc');
+        if (titleEl) titleEl.textContent = 'Step 3 of 3: Click the "Save" Button in the Dialog';
+        if (descEl) descEl.textContent = 'Click the "Save" button inside the Confidential Mode dialog box.';
+        setTimeout(() => { isProcessingClick = false; }, 350);
+      } else {
+        finishCalibration();
       }
 
-      // Send to background
-      chrome.runtime.sendMessage({
-        action: 'SAVE_CONFIDENTIAL_COORDS',
-        coords: {
-          point1,
-          point2,
-          delayMs: 350
-        }
+    } else if (currentStep === 3 && mode === '3point') {
+      point3 = { x, y };
+      addMarker(x, y, '3', '#10b981');
+      finishCalibration();
+    }
+  }
+
+  function finishCalibration() {
+    isProcessingClick = true;
+
+    // Immediately save coordinates to extension storage
+    chrome.runtime.sendMessage({
+      action: 'SAVE_CONFIDENTIAL_COORDS',
+      coords: {
+        mode,
+        point1,
+        point2,
+        point3: mode === '3point' ? point3 : null
+      }
+    });
+
+    const titleEl = hud.querySelector('#midey-hud-title');
+    const descEl = hud.querySelector('#midey-hud-desc');
+    const actionsEl = hud.querySelector('#midey-hud-actions');
+
+    if (titleEl) {
+      titleEl.textContent = `✅ All ${totalSteps} Points Calibrated & Saved!`;
+      titleEl.style.color = '#34d399';
+    }
+
+    if (descEl) {
+      if (mode === '3point') {
+        descEl.textContent = `Pt 1 (3-Dot): (${point1.x}, ${point1.y}) • Pt 2 (Menu): (${point2.x}, ${point2.y}) • Pt 3 (Save): (${point3.x}, ${point3.y})`;
+      } else {
+        descEl.textContent = `Pt 1 (Toolbar): (${point1.x}, ${point1.y}) • Pt 2 (Save): (${point2.x}, ${point2.y})`;
+      }
+    }
+
+    if (actionsEl) {
+      actionsEl.innerHTML = `
+        <button id="midey-calibrator-done-btn" style="background: #10b981; border: none; color: #ffffff; font-size: 11.5px; font-weight: 700; padding: 6px 14px; border-radius: 6px; cursor: pointer;">
+          Done
+        </button>
+        <button id="midey-calibrator-retry-btn" style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: #f3f4f6; font-size: 11px; padding: 6px 10px; border-radius: 6px; cursor: pointer;">
+          🔄 Retry
+        </button>
+      `;
+
+      const doneBtn = actionsEl.querySelector('#midey-calibrator-done-btn');
+      doneBtn?.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        cleanup('Saved and closed by user.');
       });
 
-      setTimeout(() => {
-        cleanup();
-      }, 1200);
+      const retryBtn = actionsEl.querySelector('#midey-calibrator-retry-btn');
+      retryBtn?.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        resetCalibration();
+      });
+    }
+
+    // Auto-close overlay after 7 seconds if user does not click Done
+    autoCloseTimer = setTimeout(() => {
+      cleanup('Auto-closing after calibration.');
+    }, 7000);
+  }
+
+  function resetCalibration() {
+    if (autoCloseTimer) clearTimeout(autoCloseTimer);
+    currentStep = 1;
+    point1 = null;
+    point2 = null;
+    point3 = null;
+    isProcessingClick = false;
+
+    // Remove placed markers
+    overlay.querySelectorAll('.midey-calibrator-marker').forEach((m) => m.remove());
+
+    // Reset HUD text
+    const titleEl = hud.querySelector('#midey-hud-title');
+    const descEl = hud.querySelector('#midey-hud-desc');
+    const actionsEl = hud.querySelector('#midey-hud-actions');
+
+    if (titleEl) {
+      titleEl.textContent = mode === '3point' ? 'Step 1 of 3: Click the 3-Dot ("More options") Menu' : 'Step 1 of 2: Click the Confidential Button';
+      titleEl.style.color = '#ffffff';
+    }
+    if (descEl) {
+      descEl.textContent = mode === '3point' ? 'Click directly on the 3-dot button in your compose toolbar. Press ESC to cancel.' : 'Click the lock icon on your Gmail toolbar to open the dialog. Press ESC to cancel.';
+    }
+    if (actionsEl) {
+      actionsEl.innerHTML = `
+        <button id="midey-calibrator-cancel-btn" style="background: rgba(239, 68, 68, 0.2); border: 1px solid rgba(239, 68, 68, 0.4); color: #fca5a5; font-size: 11px; font-weight: 600; padding: 6px 12px; border-radius: 6px; cursor: pointer;">
+          Cancel
+        </button>
+      `;
+      const cancelBtn = actionsEl.querySelector('#midey-calibrator-cancel-btn');
+      cancelBtn?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        cleanup('Calibration cancelled.');
+      });
     }
   }
 
@@ -2867,6 +3046,7 @@ function injectedCoordinatePickerScript() {
   }
 
   function cleanup(msg) {
+    if (autoCloseTimer) clearTimeout(autoCloseTimer);
     window.removeEventListener('click', handleDocumentClick, true);
     window.removeEventListener('keydown', handleKeyDown, true);
     if (overlay && overlay.parentNode) {
@@ -2889,24 +3069,25 @@ async function injectedCoordinateTestScript(coords) {
     const rip = document.createElement('div');
     rip.style.cssText = `
       position: fixed;
-      left: ${x - 18}px;
-      top: ${y - 18}px;
-      width: 36px;
-      height: 36px;
+      left: ${x - 20}px;
+      top: ${y - 20}px;
+      width: 40px;
+      height: 40px;
       border-radius: 50%;
       border: 3px solid ${color};
       background: rgba(99, 102, 241, 0.25);
       color: #fff;
-      font-size: 11px;
+      font-size: 10.5px;
       font-weight: 800;
       display: flex;
       align-items: center;
       justify-content: center;
       z-index: 2147483647;
       pointer-events: none;
-      box-shadow: 0 0 15px ${color};
+      box-shadow: 0 0 16px ${color};
       transition: transform 0.4s ease, opacity 0.4s ease;
       transform: scale(1.3);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     `;
     rip.textContent = label;
     document.body.appendChild(rip);
@@ -2914,7 +3095,7 @@ async function injectedCoordinateTestScript(coords) {
       rip.style.transform = 'scale(0.8)';
       rip.style.opacity = '0';
       setTimeout(() => rip.remove(), 400);
-    }, 600);
+    }, 800);
   }
 
   function clickPoint(x, y) {
@@ -2927,14 +3108,35 @@ async function injectedCoordinateTestScript(coords) {
     el.dispatchEvent(new MouseEvent('click', opts));
   }
 
-  // Click Point 1
-  showClickRipple(coords.point1.x, coords.point1.y, '1', '#6366f1');
-  clickPoint(coords.point1.x, coords.point1.y);
+  const is3Point = coords.mode === '3point' || Boolean(coords.point3);
+  const delay1 = coords.delay1Ms || coords.delayMs || 350;
+  const delay2 = coords.delay2Ms || 400;
 
-  if (coords.point2) {
-    await new Promise((r) => setTimeout(r, coords.delayMs || 350));
-    showClickRipple(coords.point2.x, coords.point2.y, '2', '#10b981');
-    clickPoint(coords.point2.x, coords.point2.y);
+  if (is3Point) {
+    showClickRipple(coords.point1.x, coords.point1.y, '1: 3-Dot', '#6366f1');
+    clickPoint(coords.point1.x, coords.point1.y);
+
+    if (coords.point2) {
+      await new Promise((r) => setTimeout(r, delay1));
+      showClickRipple(coords.point2.x, coords.point2.y, '2: Menu', '#f59e0b');
+      clickPoint(coords.point2.x, coords.point2.y);
+    }
+
+    if (coords.point3) {
+      await new Promise((r) => setTimeout(r, delay2));
+      showClickRipple(coords.point3.x, coords.point3.y, '3: Save', '#10b981');
+      clickPoint(coords.point3.x, coords.point3.y);
+    }
+  } else {
+    showClickRipple(coords.point1.x, coords.point1.y, '1: Lock', '#6366f1');
+    clickPoint(coords.point1.x, coords.point1.y);
+
+    if (coords.point2) {
+      await new Promise((r) => setTimeout(r, delay1));
+      showClickRipple(coords.point2.x, coords.point2.y, '2: Save', '#10b981');
+      clickPoint(coords.point2.x, coords.point2.y);
+    }
   }
 }
+
 

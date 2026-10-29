@@ -871,33 +871,59 @@
           </p>
 
           <div id="confidentialCoordsDetails" style="display: none;">
+            <!-- Mode Switcher: 3-Point (Side Panel / 3-Dot) vs 2-Point (Full Screen / Direct) -->
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; background: var(--bg-surface); padding: 5px 8px; border-radius: var(--radius-sm); border: 1px solid var(--border-subtle);">
+              <span style="font-size: 10.5px; font-weight: 600; color: var(--text-main);">Calibration Mode:</span>
+              <div style="display: flex; gap: 4px;">
+                <button type="button" id="coordsMode3PointBtn" class="btn btn-primary btn-xs" style="padding: 2px 8px; font-size: 10px;">3-Point (3-Dot Menu)</button>
+                <button type="button" id="coordsMode2PointBtn" class="btn btn-secondary btn-xs" style="padding: 2px 8px; font-size: 10px;">2-Point (Full Screen)</button>
+              </div>
+            </div>
+
             <div style="display: flex; gap: 6px; align-items: center; margin-bottom: 8px; flex-wrap: wrap;">
               <button id="pickConfidentialCoordsBtn" class="btn btn-primary btn-xs" type="button" style="display: flex; align-items: center; gap: 4px;">
                 <span>🎯 Calibrate on Gmail</span>
               </button>
               <button id="testConfidentialCoordsBtn" class="btn btn-secondary btn-xs" type="button" style="display: flex; align-items: center; gap: 4px;">
-                <span>⚡ Test Click</span>
+                <span>⚡ Test Clicks</span>
               </button>
               <button id="clearConfidentialCoordsBtn" class="btn btn-secondary btn-xs" type="button" style="color: var(--danger);">
                 <span>Reset</span>
               </button>
             </div>
 
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 11px; margin-bottom: 6px;">
-              <div style="background: var(--bg-surface); padding: 6px 8px; border-radius: 4px; border: 1px solid var(--border-subtle);">
-                <div style="color: var(--text-dim); font-size: 10px; font-weight: 600;">Point 1 (Confidential / 3-Dot):</div>
-                <div id="coordsDisplayPoint1" style="font-family: monospace; color: var(--text-main); font-weight: 700; margin-top: 2px;">Not Set</div>
+            <!-- Coordinate Points Grid (Adapts dynamically between 3-point and 2-point) -->
+            <div id="coordsGridContainer" style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; font-size: 11px; margin-bottom: 8px;">
+              <div id="coordsCardPoint1" style="background: var(--bg-surface); padding: 5px 6px; border-radius: 4px; border: 1px solid var(--border-subtle);">
+                <div id="coordsLabelPoint1" style="color: var(--text-dim); font-size: 9.5px; font-weight: 600;">Point 1 (3-Dot):</div>
+                <div id="coordsDisplayPoint1" style="font-family: monospace; color: var(--text-main); font-weight: 700; margin-top: 2px; font-size: 10.5px;">Not Set</div>
               </div>
-              <div style="background: var(--bg-surface); padding: 6px 8px; border-radius: 4px; border: 1px solid var(--border-subtle);">
-                <div style="color: var(--text-dim); font-size: 10px; font-weight: 600;">Point 2 (Menu Item / Save):</div>
-                <div id="coordsDisplayPoint2" style="font-family: monospace; color: var(--text-main); font-weight: 700; margin-top: 2px;">Not Set</div>
+              <div id="coordsCardPoint2" style="background: var(--bg-surface); padding: 5px 6px; border-radius: 4px; border: 1px solid var(--border-subtle);">
+                <div id="coordsLabelPoint2" style="color: var(--text-dim); font-size: 9.5px; font-weight: 600;">Point 2 (Confidential):</div>
+                <div id="coordsDisplayPoint2" style="font-family: monospace; color: var(--text-main); font-weight: 700; margin-top: 2px; font-size: 10.5px;">Not Set</div>
+              </div>
+              <div id="coordsCardPoint3" style="background: var(--bg-surface); padding: 5px 6px; border-radius: 4px; border: 1px solid var(--border-subtle);">
+                <div id="coordsLabelPoint3" style="color: var(--text-dim); font-size: 9.5px; font-weight: 600;">Point 3 (Save):</div>
+                <div id="coordsDisplayPoint3" style="font-family: monospace; color: var(--text-main); font-weight: 700; margin-top: 2px; font-size: 10.5px;">Not Set</div>
               </div>
             </div>
 
-            <div style="display: flex; gap: 8px; align-items: center; font-size: 10.5px; color: var(--text-muted);">
-              <span>Delay between clicks:</span>
-              <input type="number" id="confidentialCoordsDelayInput" class="setting-input" style="width: 65px; height: 24px; padding: 2px 6px;" min="100" max="2000" step="50" value="350">
-              <span>ms</span>
+            <!-- Dedicated Timing Intervals for Each Step -->
+            <div style="display: flex; flex-direction: column; gap: 5px; font-size: 10.5px; color: var(--text-muted); background: var(--bg-surface); padding: 6px 8px; border-radius: 4px; border: 1px solid var(--border-subtle);">
+              <div id="confidentialCoordsDelay1Container" style="display: flex; justify-content: space-between; align-items: center;">
+                <span id="confidentialCoordsDelay1Label">Interval after Point 1 (open menu):</span>
+                <div style="display: flex; align-items: center; gap: 4px;">
+                  <input type="number" id="confidentialCoordsDelay1Input" class="setting-input" style="width: 58px; height: 22px; padding: 2px 4px; text-align: center;" min="100" max="3000" step="50" value="350">
+                  <span>ms</span>
+                </div>
+              </div>
+              <div id="confidentialCoordsDelay2Container" style="display: flex; justify-content: space-between; align-items: center;">
+                <span id="confidentialCoordsDelay2Label">Interval after Point 2 (open dialog):</span>
+                <div style="display: flex; align-items: center; gap: 4px;">
+                  <input type="number" id="confidentialCoordsDelay2Input" class="setting-input" style="width: 58px; height: 22px; padding: 2px 4px; text-align: center;" min="100" max="3000" step="50" value="400">
+                  <span>ms</span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
