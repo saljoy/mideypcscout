@@ -310,6 +310,14 @@ const confidentialModeBadge = document.getElementById('confidentialModeBadge');
 const confidentialModeDesc = document.getElementById('confidentialModeDesc');
 const confidentialSettingsContent = document.getElementById('confidentialSettingsContent');
 const confidentialExpirationSelect = document.getElementById('confidentialExpirationSelect');
+const enableConfidentialCoordsOverride = document.getElementById('enableConfidentialCoordsOverride');
+const confidentialCoordsDetails = document.getElementById('confidentialCoordsDetails');
+const pickConfidentialCoordsBtn = document.getElementById('pickConfidentialCoordsBtn');
+const testConfidentialCoordsBtn = document.getElementById('testConfidentialCoordsBtn');
+const clearConfidentialCoordsBtn = document.getElementById('clearConfidentialCoordsBtn');
+const coordsDisplayPoint1 = document.getElementById('coordsDisplayPoint1');
+const coordsDisplayPoint2 = document.getElementById('coordsDisplayPoint2');
+const confidentialCoordsDelayInput = document.getElementById('confidentialCoordsDelayInput');
 const layoutShowConfidentialMode = document.getElementById('layoutShowConfidentialMode');
 
 // DOM Elements - Stats & Utilities
@@ -414,6 +422,7 @@ async function loadInitialState() {
   updateSendModeUI(Boolean(currentSettings.inPageAutoSend));
   updateBccModeUI(Boolean(currentSettings.enableBccMode), currentSettings.bccBatchSize || 10);
   updateConfidentialModeUI(Boolean(currentSettings.enableConfidentialMode), currentSettings.confidentialExpiration || '1w');
+  updateConfidentialCoordsUI(Boolean(currentSettings.enableConfidentialCoordsOverride), currentSettings.confidentialCoordinates);
 
   enableSignatureCheckbox.checked = currentSettings.enableSignature === true;
   signatureRotationSelect.value = currentSettings.signatureRotationMode || 'sequential';
@@ -571,6 +580,9 @@ function setupStorageListener() {
       }
       if (document.activeElement !== enableConfidentialModeInput && document.activeElement !== confidentialExpirationSelect) {
         updateConfidentialModeUI(Boolean(currentSettings.enableConfidentialMode), currentSettings.confidentialExpiration || '1w');
+      }
+      if (changes.settings.newValue?.enableConfidentialCoordsOverride !== undefined || changes.settings.newValue?.confidentialCoordinates !== undefined) {
+        updateConfidentialCoordsUI(Boolean(currentSettings.enableConfidentialCoordsOverride), currentSettings.confidentialCoordinates);
       }
       if (changes.settings.newValue?.keepAwakeDuringQueue !== undefined && autoKeepAwakeOnQueueCheckbox) {
         autoKeepAwakeOnQueueCheckbox.checked = currentSettings.keepAwakeDuringQueue !== false;
@@ -1102,6 +1114,67 @@ function setupEventListeners() {
     });
   }
 
+  // Coordinate Calibrator Toggle & Buttons
+  if (enableConfidentialCoordsOverride) {
+    enableConfidentialCoordsOverride.addEventListener('change', async (e) => {
+      const enabled = e.target.checked;
+      currentSettings = {
+        ...currentSettings,
+        enableConfidentialCoordsOverride: enabled
+      };
+      updateConfidentialCoordsUI(enabled, currentSettings.confidentialCoordinates);
+      await chrome.storage.local.set({ settings: currentSettings });
+      if (enabled && (!currentSettings.confidentialCoordinates || !currentSettings.confidentialCoordinates.point1)) {
+        showBanner(statusBanner, 'Custom coordinates enabled. Click "🎯 Calibrate on Gmail" to calibrate click points.', 'info');
+      }
+    });
+  }
+
+  if (pickConfidentialCoordsBtn) {
+    pickConfidentialCoordsBtn.addEventListener('click', async () => {
+      showBanner(statusBanner, '🎯 Opening Calibrator HUD on Gmail... Switch to your Gmail tab to calibrate coordinates.', 'info');
+      const response = await chrome.runtime.sendMessage({ action: 'START_COORDINATE_PICKER' });
+      if (!response?.success) {
+        showBanner(statusBanner, response?.error || 'Failed to start coordinate calibrator.', 'error');
+      }
+    });
+  }
+
+  if (testConfidentialCoordsBtn) {
+    testConfidentialCoordsBtn.addEventListener('click', async () => {
+      const response = await chrome.runtime.sendMessage({ action: 'TEST_CONFIDENTIAL_COORDS' });
+      if (!response?.success) {
+        showBanner(statusBanner, response?.error || 'Could not test coordinates.', 'error');
+      } else {
+        showBanner(statusBanner, '⚡ Dispatched test coordinate clicks to your Gmail window!', 'success');
+      }
+    });
+  }
+
+  if (clearConfidentialCoordsBtn) {
+    clearConfidentialCoordsBtn.addEventListener('click', async () => {
+      currentSettings = {
+        ...currentSettings,
+        enableConfidentialCoordsOverride: false,
+        confidentialCoordinates: { point1: null, point2: null, delayMs: 350 }
+      };
+      updateConfidentialCoordsUI(false, currentSettings.confidentialCoordinates);
+      await chrome.storage.local.set({ settings: currentSettings });
+      showBanner(statusBanner, 'Custom coordinates reset.', 'info');
+    });
+  }
+
+  if (confidentialCoordsDelayInput) {
+    confidentialCoordsDelayInput.addEventListener('change', async (e) => {
+      const ms = Math.max(100, Math.min(2000, parseInt(e.target.value, 10) || 350));
+      currentSettings.confidentialCoordinates = {
+        ...(currentSettings.confidentialCoordinates || {}),
+        delayMs: ms
+      };
+      await chrome.storage.local.set({ settings: currentSettings });
+    });
+  }
+
   // Search Filter (Debounced to keep UI snappy)
   let searchDebounceTimer = null;
   searchInput.addEventListener('input', (e) => {
@@ -1554,6 +1627,40 @@ function updateConfidentialModeUI(isConfidential, expiration = '1w') {
   }
   if (confidentialModeCard) {
     confidentialModeCard.classList.toggle('is-confidential', Boolean(isConfidential));
+  }
+}
+
+/**
+ * Update Confidential Mode Coordinate Calibration UI
+ */
+function updateConfidentialCoordsUI(overrideEnabled, coords) {
+  if (enableConfidentialCoordsOverride) {
+    enableConfidentialCoordsOverride.checked = Boolean(overrideEnabled);
+  }
+  if (confidentialCoordsDetails) {
+    confidentialCoordsDetails.style.display = overrideEnabled ? 'block' : 'none';
+  }
+  const c = coords || {};
+  if (coordsDisplayPoint1) {
+    if (c.point1) {
+      coordsDisplayPoint1.textContent = `X: ${c.point1.x}, Y: ${c.point1.y}`;
+      coordsDisplayPoint1.style.color = 'var(--primary)';
+    } else {
+      coordsDisplayPoint1.textContent = 'Not Set';
+      coordsDisplayPoint1.style.color = 'var(--text-dim)';
+    }
+  }
+  if (coordsDisplayPoint2) {
+    if (c.point2) {
+      coordsDisplayPoint2.textContent = `X: ${c.point2.x}, Y: ${c.point2.y}`;
+      coordsDisplayPoint2.style.color = 'var(--success)';
+    } else {
+      coordsDisplayPoint2.textContent = 'Not Set';
+      coordsDisplayPoint2.style.color = 'var(--text-dim)';
+    }
+  }
+  if (confidentialCoordsDelayInput && document.activeElement !== confidentialCoordsDelayInput) {
+    confidentialCoordsDelayInput.value = c.delayMs || 350;
   }
 }
 

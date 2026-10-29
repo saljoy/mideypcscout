@@ -855,6 +855,51 @@
             🔒 Emails sent with Confidential Mode automatically expire on Gmail's servers and block recipient downloading, copying, or forwarding.
           </div>
         </div>
+
+        <!-- Coordinate Selector & Calibrator Box (Optional Fallback for Side Panel & Custom Themes) -->
+        <div class="confidential-coords-box" style="margin-top: 10px; padding: 9px 10px; border-radius: var(--radius-sm); background: var(--bg-input); border: 1px solid var(--border-subtle);">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 5px;">
+            <label style="font-size: 11.5px; font-weight: 600; display: flex; align-items: center; gap: 6px; cursor: pointer; color: var(--text-main);">
+              <input type="checkbox" id="enableConfidentialCoordsOverride">
+              <span>Use Custom Coordinates (Calibrator Override)</span>
+            </label>
+            <span class="badge" style="font-size: 9.5px; padding: 2px 6px; background: rgba(79, 70, 229, 0.15); color: #818cf8; border-radius: 4px;">Side Panel Fallback</span>
+          </div>
+          <p style="font-size: 10.5px; color: var(--text-muted); margin-bottom: 8px; line-height: 1.4;">
+            If Gmail's button is hidden under the 3-dot menu or inside a compressed toolbar in the side panel, calibrate exact click points on your Gmail window.
+          </p>
+
+          <div id="confidentialCoordsDetails" style="display: none;">
+            <div style="display: flex; gap: 6px; align-items: center; margin-bottom: 8px; flex-wrap: wrap;">
+              <button id="pickConfidentialCoordsBtn" class="btn btn-primary btn-xs" type="button" style="display: flex; align-items: center; gap: 4px;">
+                <span>🎯 Calibrate on Gmail</span>
+              </button>
+              <button id="testConfidentialCoordsBtn" class="btn btn-secondary btn-xs" type="button" style="display: flex; align-items: center; gap: 4px;">
+                <span>⚡ Test Click</span>
+              </button>
+              <button id="clearConfidentialCoordsBtn" class="btn btn-secondary btn-xs" type="button" style="color: var(--danger);">
+                <span>Reset</span>
+              </button>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 11px; margin-bottom: 6px;">
+              <div style="background: var(--bg-surface); padding: 6px 8px; border-radius: 4px; border: 1px solid var(--border-subtle);">
+                <div style="color: var(--text-dim); font-size: 10px; font-weight: 600;">Point 1 (Confidential / 3-Dot):</div>
+                <div id="coordsDisplayPoint1" style="font-family: monospace; color: var(--text-main); font-weight: 700; margin-top: 2px;">Not Set</div>
+              </div>
+              <div style="background: var(--bg-surface); padding: 6px 8px; border-radius: 4px; border: 1px solid var(--border-subtle);">
+                <div style="color: var(--text-dim); font-size: 10px; font-weight: 600;">Point 2 (Menu Item / Save):</div>
+                <div id="coordsDisplayPoint2" style="font-family: monospace; color: var(--text-main); font-weight: 700; margin-top: 2px;">Not Set</div>
+              </div>
+            </div>
+
+            <div style="display: flex; gap: 8px; align-items: center; font-size: 10.5px; color: var(--text-muted);">
+              <span>Delay between clicks:</span>
+              <input type="number" id="confidentialCoordsDelayInput" class="setting-input" style="width: 65px; height: 24px; padding: 2px 6px;" min="100" max="2000" step="50" value="350">
+              <span>ms</span>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- Sub-Collapsible Delay & Tab Settings -->

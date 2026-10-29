@@ -207,6 +207,78 @@ async function handleRuntimeMessage(message, sender) {
       return { success: false, error: 'Side panel API unavailable or window not found.' };
     }
 
+    case 'START_COORDINATE_PICKER': {
+      let targetTab = null;
+      const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (activeTab?.url && activeTab.url.includes('mail.google.com')) {
+        targetTab = activeTab;
+      } else {
+        const tabs = await chrome.tabs.query({ url: '*://mail.google.com/*' });
+        if (tabs.length > 0) {
+          targetTab = tabs[0];
+          await chrome.tabs.update(targetTab.id, { active: true });
+          if (targetTab.windowId) {
+            await chrome.windows.update(targetTab.windowId, { focused: true });
+          }
+        }
+      }
+
+      if (!targetTab) {
+        return { success: false, error: 'Please open Gmail (mail.google.com) in your browser before calibrating coordinates.' };
+      }
+
+      await chrome.scripting.executeScript({
+        target: { tabId: targetTab.id },
+        func: injectedCoordinatePickerScript
+      });
+
+      return { success: true };
+    }
+
+    case 'SAVE_CONFIDENTIAL_COORDS': {
+      const { coords } = message || {};
+      if (coords) {
+        const { settings = {} } = await chrome.storage.local.get('settings');
+        const updatedSettings = {
+          ...settings,
+          enableConfidentialCoordsOverride: true,
+          confidentialCoordinates: coords
+        };
+        await chrome.storage.local.set({ settings: updatedSettings });
+        return { success: true, settings: updatedSettings };
+      }
+      return { success: false, error: 'Missing coordinates data.' };
+    }
+
+    case 'TEST_CONFIDENTIAL_COORDS': {
+      const { settings = {} } = await chrome.storage.local.get('settings');
+      const coords = settings.confidentialCoordinates;
+      if (!coords || !coords.point1) {
+        return { success: false, error: 'No coordinates saved yet. Click "🎯 Calibrate on Gmail" first.' };
+      }
+
+      let targetTab = null;
+      const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (activeTab?.url && activeTab.url.includes('mail.google.com')) {
+        targetTab = activeTab;
+      } else {
+        const tabs = await chrome.tabs.query({ url: '*://mail.google.com/*' });
+        if (tabs.length > 0) targetTab = tabs[0];
+      }
+
+      if (!targetTab) {
+        return { success: false, error: 'Please open Gmail (mail.google.com) to test the coordinates.' };
+      }
+
+      await chrome.scripting.executeScript({
+        target: { tabId: targetTab.id },
+        func: injectedCoordinateTestScript,
+        args: [coords]
+      });
+
+      return { success: true };
+    }
+
     default:
       return { success: false, error: `Unknown action: ${action}` };
   }
@@ -242,7 +314,9 @@ async function initializeDefaults() {
       subjectTemplates: [],
       bodyTemplates: [],
       enableConfidentialMode: false,
-      confidentialExpiration: '1w'
+      confidentialExpiration: '1w',
+      enableConfidentialCoordsOverride: false,
+      confidentialCoordinates: { point1: null, point2: null, delayMs: 350 }
     };
   } else {
     // Ensure new settings exist if settings were already initialized previously
@@ -302,6 +376,14 @@ async function initializeDefaults() {
     }
     if (!existingSettings.confidentialExpiration) {
       existingSettings.confidentialExpiration = '1w';
+      settingsChanged = true;
+    }
+    if (existingSettings.enableConfidentialCoordsOverride === undefined) {
+      existingSettings.enableConfidentialCoordsOverride = false;
+      settingsChanged = true;
+    }
+    if (!existingSettings.confidentialCoordinates) {
+      existingSettings.confidentialCoordinates = { point1: null, point2: null, delayMs: 350 };
       settingsChanged = true;
     }
     if (settingsChanged) {
@@ -682,7 +764,8 @@ async function executeInPageAutoSend(leadId, targetLead, settings, storageKey = 
           body: finalBody,
           autoSend: true,
           confidentialMode: Boolean(settings.enableConfidentialMode),
-          confidentialExpiration: settings.confidentialExpiration || '1w'
+          confidentialExpiration: settings.confidentialExpiration || '1w',
+          confidentialCoords: settings.enableConfidentialCoordsOverride ? (settings.confidentialCoordinates || null) : null
         }
       ]
     });
@@ -783,7 +866,8 @@ async function executeStandaloneAutoSend(leadId, targetLead, settings, storageKe
           expectedSubject: targetLead.subject,
           expectedBody: finalBody,
           confidentialMode: Boolean(settings.enableConfidentialMode),
-          confidentialExpiration: settings.confidentialExpiration || '1w'
+          confidentialExpiration: settings.confidentialExpiration || '1w',
+          confidentialCoords: settings.enableConfidentialCoordsOverride ? (settings.confidentialCoordinates || null) : null
         }
       ]
     });
@@ -953,7 +1037,8 @@ async function executeInPageAutoSendBcc(batch, bccEmails, subject, finalBody, se
           body: finalBody,
           autoSend: true,
           confidentialMode: Boolean(settings.enableConfidentialMode),
-          confidentialExpiration: settings.confidentialExpiration || '1w'
+          confidentialExpiration: settings.confidentialExpiration || '1w',
+          confidentialCoords: settings.enableConfidentialCoordsOverride ? (settings.confidentialCoordinates || null) : null
         }
       ]
     });
@@ -1034,7 +1119,8 @@ async function executeStandaloneAutoSendBcc(batch, bccEmails, subject, finalBody
           expectedSubject: subject,
           expectedBody: finalBody,
           confidentialMode: Boolean(settings.enableConfidentialMode),
-          confidentialExpiration: settings.confidentialExpiration || '1w'
+          confidentialExpiration: settings.confidentialExpiration || '1w',
+          confidentialCoords: settings.enableConfidentialCoordsOverride ? (settings.confidentialCoordinates || null) : null
         }
       ]
     });
@@ -1179,7 +1265,7 @@ function waitForTabComplete(tabId, timeoutMs = 25000) {
  * Self-contained injected function executed inside the Gmail Compose Tab
  */
 async function injectedGmailSendScript(params) {
-  const { expectedEmail, expectedBccEmails, expectedSubject, expectedBody, confidentialMode, confidentialExpiration } = params || {};
+  const { expectedEmail, expectedBccEmails, expectedSubject, expectedBody, confidentialMode, confidentialExpiration, confidentialCoords } = params || {};
   const maxWaitMs = 20000;
   const pollIntervalMs = 100; // Ultra-responsive active polling
   const startTime = Date.now();
@@ -1201,9 +1287,56 @@ async function injectedGmailSendScript(params) {
     element.dispatchEvent(new MouseEvent('click', opts));
   }
 
-  async function applyConfidentialMode(container, requestedExpiration) {
+  async function applyConfidentialMode(container, requestedExpiration, coordsConfig) {
     try {
       const root = container || document;
+
+      // 1. If custom coordinates override is enabled and Point 1 is set, execute custom coordinate sequence
+      if (coordsConfig && coordsConfig.point1) {
+        console.log('[Confidential] Using custom coordinates override:', coordsConfig);
+        function clickAtPoint(x, y) {
+          const el = document.elementFromPoint(x, y) || document.body;
+          const opts = {
+            bubbles: true,
+            cancelable: true,
+            view: window,
+            clientX: x,
+            clientY: y,
+            screenX: x,
+            screenY: y,
+            button: 0,
+            buttons: 1
+          };
+          el.dispatchEvent(new PointerEvent('pointerdown', opts));
+          el.dispatchEvent(new MouseEvent('mousedown', opts));
+          el.dispatchEvent(new PointerEvent('pointerup', opts));
+          el.dispatchEvent(new MouseEvent('mouseup', opts));
+          el.dispatchEvent(new MouseEvent('click', opts));
+        }
+
+        // Click Point 1 (e.g. Confidential icon or 3-dot More Options button)
+        clickAtPoint(coordsConfig.point1.x, coordsConfig.point1.y);
+        await localSleep(coordsConfig.delayMs || 350);
+
+        // Click Point 2 (e.g. Confidential menu item or Save button)
+        if (coordsConfig.point2) {
+          clickAtPoint(coordsConfig.point2.x, coordsConfig.point2.y);
+          await localSleep(coordsConfig.delayMs || 350);
+        }
+
+        // If a Confidential dialog is open with a Save button, ensure Save is clicked
+        const confDialog = findOpenConfidentialDialog();
+        if (confDialog) {
+          const saveBtn = findSaveBtn(confDialog);
+          if (saveBtn && saveBtn.offsetWidth > 0) {
+            dispatchRealisticClick(saveBtn);
+            await localSleep(250);
+          }
+        }
+        return true;
+      }
+
+      // 2. Check if Confidential Mode is ALREADY active in the compose box
       const existingBanner = root.querySelector(
         'div[aria-label*="Confidential" i], div.a45, div.a46, tr.a45, [data-tooltip*="Confidential" i] .a45'
       ) || (function () {
@@ -1217,8 +1350,12 @@ async function injectedGmailSendScript(params) {
         return null;
       })();
 
-      if (existingBanner) return true;
+      if (existingBanner) {
+        console.log('[Confidential] Confidential mode is already active for this draft.');
+        return true;
+      }
 
+      // 3. Automated Detection: First check visible direct button in compose toolbar
       function findConfidentialBtn() {
         const tooltipBtn = root.querySelector(
           'div[role="button"][data-tooltip*="confidential" i], div[data-tooltip*="confidential" i], button[data-tooltip*="confidential" i]'
@@ -1235,7 +1372,7 @@ async function injectedGmailSendScript(params) {
         );
         if (cmdBtn) return cmdBtn;
 
-        const toolbar = root.querySelector('.btC, .gU, tr.btC') || root;
+        const toolbar = root.querySelector('.btC, .gU, tr.btC, div[role="toolbar"]') || root;
         const allButtons = toolbar.querySelectorAll('div[role="button"], button');
         for (const btn of allButtons) {
           const label = (
@@ -1256,21 +1393,86 @@ async function injectedGmailSendScript(params) {
         return null;
       }
 
-      const confBtn = findConfidentialBtn();
-      if (!confBtn) {
-        console.warn('Gmail Confidential Mode button not found in compose toolbar.');
-        return false;
+      function findMoreOptionsBtn() {
+        const toolbar = root.querySelector('.btC, .gU, tr.btC, div[role="toolbar"]') || root;
+        const selectors = [
+          'div[role="button"][data-tooltip*="More options" i]',
+          'div[role="button"][aria-label*="More options" i]',
+          'div[data-tooltip*="More options" i]',
+          'div[aria-label*="More options" i]',
+          'div[role="button"][data-tooltip*="options" i]',
+          'div[role="button"][aria-label*="options" i]',
+          'div[role="button"][data-tooltip*="Plus d\'options" i]',
+          'div[role="button"][data-tooltip*="Weitere Optionen" i]',
+          'div[role="button"][data-tooltip*="Más opciones" i]',
+          '.J-JN-M-I.J-J5-Ji',
+          '.XP.M9'
+        ];
+        for (const sel of selectors) {
+          const el = toolbar.querySelector(sel);
+          if (el && el.offsetWidth > 0) return el;
+        }
+        const btns = toolbar.querySelectorAll('div[role="button"], button');
+        for (const b of btns) {
+          const tip = (b.getAttribute('data-tooltip') || b.getAttribute('aria-label') || b.getAttribute('title') || '').toLowerCase();
+          if (tip.includes('more') || tip.includes('option') || tip.includes('plus')) {
+            if (b.offsetWidth > 0) return b;
+          }
+        }
+        return null;
       }
 
-      dispatchRealisticClick(confBtn);
-      await localSleep(250);
+      let confBtn = findConfidentialBtn();
 
-      const dialogStartTime = Date.now();
-      let confDialog = null;
+      // If direct button is NOT found or hidden (e.g. side panel / narrow viewport)
+      if (!confBtn || confBtn.offsetWidth === 0) {
+        console.log('[Confidential] Direct button not visible on toolbar, checking 3-dot More Options menu...');
+        const moreBtn = findMoreOptionsBtn();
+        if (moreBtn) {
+          dispatchRealisticClick(moreBtn);
+          await localSleep(250);
 
-      while (Date.now() - dialogStartTime < 3500) {
+          // Find confidential menuitem in open menus
+          const openMenus = document.querySelectorAll('div[role="menu"], div.J-M, div.aF2');
+          let menuItem = null;
+          for (const m of openMenus) {
+            if (m.offsetWidth === 0) continue;
+            const items = m.querySelectorAll('div[role="menuitem"], div.J-N, div.J-N-Jz');
+            for (const item of items) {
+              const txt = (item.textContent || item.getAttribute('aria-label') || '').toLowerCase();
+              if (
+                txt.includes('confidential') ||
+                txt.includes('confidentiel') ||
+                txt.includes('vertraulich') ||
+                txt.includes('confidencial')
+              ) {
+                menuItem = item;
+                break;
+              }
+            }
+            if (menuItem) break;
+          }
+
+          if (menuItem) {
+            console.log('[Confidential] Found Confidential item in 3-dot menu, clicking...');
+            dispatchRealisticClick(menuItem);
+            await localSleep(250);
+          } else {
+            console.warn('[Confidential] Could not locate Confidential option in 3-dot menu.');
+          }
+        } else {
+          console.warn('[Confidential] Neither Confidential button nor 3-dot menu found on compose toolbar.');
+        }
+      } else {
+        dispatchRealisticClick(confBtn);
+        await localSleep(250);
+      }
+
+      // 4. Wait for the Confidential Mode dialog to appear
+      function findOpenConfidentialDialog() {
         const dialogs = document.querySelectorAll('div[role="dialog"], div.Kj-JD');
         for (const d of dialogs) {
+          if (d.offsetWidth === 0) continue;
           const text = (d.textContent || '').toLowerCase();
           const aria = (d.getAttribute('aria-label') || '').toLowerCase();
           if (
@@ -1279,19 +1481,27 @@ async function injectedGmailSendScript(params) {
             text.includes('set expiration') ||
             text.includes('sms passcode')
           ) {
-            confDialog = d;
-            break;
+            return d;
           }
         }
+        return null;
+      }
+
+      const dialogStartTime = Date.now();
+      let confDialog = null;
+
+      while (Date.now() - dialogStartTime < 3500) {
+        confDialog = findOpenConfidentialDialog();
         if (confDialog) break;
         await localSleep(80);
       }
 
       if (!confDialog) {
-        console.warn('Confidential mode dialog did not open within timeout.');
+        console.warn('[Confidential] Confidential mode dialog did not open within timeout.');
         return false;
       }
 
+      // 5. Select expiration timeframe if requested
       if (requestedExpiration && requestedExpiration !== 'default') {
         try {
           const dropdown = confDialog.querySelector('div[role="listbox"], select, div[aria-haspopup="listbox"]');
@@ -1325,11 +1535,13 @@ async function injectedGmailSendScript(params) {
             }
           }
         } catch (optErr) {
-          console.warn('Could not customize expiration option:', optErr);
+          console.warn('[Confidential] Could not customize expiration option:', optErr);
         }
       }
 
+      // 6. Find and click Save button in dialog
       function findSaveBtn(dlg) {
+        if (!dlg) return null;
         const namedBtn = dlg.querySelector('button[name="save"], button[name="ok"], div[name="save"], div[name="ok"]');
         if (namedBtn) return namedBtn;
 
@@ -1352,12 +1564,12 @@ async function injectedGmailSendScript(params) {
         dispatchRealisticClick(saveBtn);
         await localSleep(250);
       } else {
-        console.warn('Save button not found in Confidential Mode dialog');
+        console.warn('[Confidential] Save button not found in Confidential Mode dialog');
       }
 
       return true;
     } catch (err) {
-      console.warn('Error applying confidential mode:', err);
+      console.warn('[Confidential] Error applying confidential mode:', err);
       return false;
     }
   }
@@ -1533,7 +1745,7 @@ async function injectedGmailSendScript(params) {
   // 4.5. If Confidential Mode is enabled, toggle confidential mode before sending
   if (confidentialMode) {
     try {
-      await applyConfidentialMode(document, confidentialExpiration);
+      await applyConfidentialMode(document, confidentialExpiration, confidentialCoords);
       sendButton = findSendButton() || sendButton;
     } catch (confErr) {
       console.warn('Confidential mode toggle warning:', confErr);
@@ -1699,7 +1911,8 @@ async function handleInPageCompose(lead) {
           body: finalBody,
           autoSend: false,
           confidentialMode: Boolean(settings.enableConfidentialMode),
-          confidentialExpiration: settings.confidentialExpiration || '1w'
+          confidentialExpiration: settings.confidentialExpiration || '1w',
+          confidentialCoords: settings.enableConfidentialCoordsOverride ? (settings.confidentialCoordinates || null) : null
         }
       ]
     });
@@ -1763,7 +1976,7 @@ async function getLeadBodyWithSignature(leadBody) {
  * Self-contained function injected into Gmail tab to click Compose and populate fields step-by-step
  */
 async function injectedInPageComposeScript(leadData) {
-  const { email, bccEmails, subject, body, autoSend, confidentialMode, confidentialExpiration } = leadData || {};
+  const { email, bccEmails, subject, body, autoSend, confidentialMode, confidentialExpiration, confidentialCoords } = leadData || {};
 
   function localSleep(ms) {
     return new Promise((r) => setTimeout(r, ms));
@@ -1780,9 +1993,56 @@ async function injectedInPageComposeScript(leadData) {
     element.dispatchEvent(new MouseEvent('click', opts));
   }
 
-  async function applyConfidentialMode(container, requestedExpiration) {
+  async function applyConfidentialMode(container, requestedExpiration, coordsConfig) {
     try {
       const root = container || document;
+
+      // 1. If custom coordinates override is enabled and Point 1 is set, execute custom coordinate sequence
+      if (coordsConfig && coordsConfig.point1) {
+        console.log('[Confidential] Using custom coordinates override:', coordsConfig);
+        function clickAtPoint(x, y) {
+          const el = document.elementFromPoint(x, y) || document.body;
+          const opts = {
+            bubbles: true,
+            cancelable: true,
+            view: window,
+            clientX: x,
+            clientY: y,
+            screenX: x,
+            screenY: y,
+            button: 0,
+            buttons: 1
+          };
+          el.dispatchEvent(new PointerEvent('pointerdown', opts));
+          el.dispatchEvent(new MouseEvent('mousedown', opts));
+          el.dispatchEvent(new PointerEvent('pointerup', opts));
+          el.dispatchEvent(new MouseEvent('mouseup', opts));
+          el.dispatchEvent(new MouseEvent('click', opts));
+        }
+
+        // Click Point 1 (e.g. Confidential icon or 3-dot More Options button)
+        clickAtPoint(coordsConfig.point1.x, coordsConfig.point1.y);
+        await localSleep(coordsConfig.delayMs || 350);
+
+        // Click Point 2 (e.g. Confidential menu item or Save button)
+        if (coordsConfig.point2) {
+          clickAtPoint(coordsConfig.point2.x, coordsConfig.point2.y);
+          await localSleep(coordsConfig.delayMs || 350);
+        }
+
+        // If a Confidential dialog is open with a Save button, ensure Save is clicked
+        const confDialog = findOpenConfidentialDialog();
+        if (confDialog) {
+          const saveBtn = findSaveBtn(confDialog);
+          if (saveBtn && saveBtn.offsetWidth > 0) {
+            dispatchRealisticClick(saveBtn);
+            await localSleep(250);
+          }
+        }
+        return true;
+      }
+
+      // 2. Check if Confidential Mode is ALREADY active in the compose box
       const existingBanner = root.querySelector(
         'div[aria-label*="Confidential" i], div.a45, div.a46, tr.a45, [data-tooltip*="Confidential" i] .a45'
       ) || (function () {
@@ -1796,8 +2056,12 @@ async function injectedInPageComposeScript(leadData) {
         return null;
       })();
 
-      if (existingBanner) return true;
+      if (existingBanner) {
+        console.log('[Confidential] Confidential mode is already active for this draft.');
+        return true;
+      }
 
+      // 3. Automated Detection: First check visible direct button in compose toolbar
       function findConfidentialBtn() {
         const tooltipBtn = root.querySelector(
           'div[role="button"][data-tooltip*="confidential" i], div[data-tooltip*="confidential" i], button[data-tooltip*="confidential" i]'
@@ -1814,7 +2078,7 @@ async function injectedInPageComposeScript(leadData) {
         );
         if (cmdBtn) return cmdBtn;
 
-        const toolbar = root.querySelector('.btC, .gU, tr.btC') || root;
+        const toolbar = root.querySelector('.btC, .gU, tr.btC, div[role="toolbar"]') || root;
         const allButtons = toolbar.querySelectorAll('div[role="button"], button');
         for (const btn of allButtons) {
           const label = (
@@ -1835,21 +2099,86 @@ async function injectedInPageComposeScript(leadData) {
         return null;
       }
 
-      const confBtn = findConfidentialBtn();
-      if (!confBtn) {
-        console.warn('Gmail Confidential Mode button not found in compose toolbar.');
-        return false;
+      function findMoreOptionsBtn() {
+        const toolbar = root.querySelector('.btC, .gU, tr.btC, div[role="toolbar"]') || root;
+        const selectors = [
+          'div[role="button"][data-tooltip*="More options" i]',
+          'div[role="button"][aria-label*="More options" i]',
+          'div[data-tooltip*="More options" i]',
+          'div[aria-label*="More options" i]',
+          'div[role="button"][data-tooltip*="options" i]',
+          'div[role="button"][aria-label*="options" i]',
+          'div[role="button"][data-tooltip*="Plus d\'options" i]',
+          'div[role="button"][data-tooltip*="Weitere Optionen" i]',
+          'div[role="button"][data-tooltip*="Más opciones" i]',
+          '.J-JN-M-I.J-J5-Ji',
+          '.XP.M9'
+        ];
+        for (const sel of selectors) {
+          const el = toolbar.querySelector(sel);
+          if (el && el.offsetWidth > 0) return el;
+        }
+        const btns = toolbar.querySelectorAll('div[role="button"], button');
+        for (const b of btns) {
+          const tip = (b.getAttribute('data-tooltip') || b.getAttribute('aria-label') || b.getAttribute('title') || '').toLowerCase();
+          if (tip.includes('more') || tip.includes('option') || tip.includes('plus')) {
+            if (b.offsetWidth > 0) return b;
+          }
+        }
+        return null;
       }
 
-      dispatchRealisticClick(confBtn);
-      await localSleep(250);
+      let confBtn = findConfidentialBtn();
 
-      const dialogStartTime = Date.now();
-      let confDialog = null;
+      // If direct button is NOT found or hidden (e.g. side panel / narrow viewport)
+      if (!confBtn || confBtn.offsetWidth === 0) {
+        console.log('[Confidential] Direct button not visible on toolbar, checking 3-dot More Options menu...');
+        const moreBtn = findMoreOptionsBtn();
+        if (moreBtn) {
+          dispatchRealisticClick(moreBtn);
+          await localSleep(250);
 
-      while (Date.now() - dialogStartTime < 3500) {
+          // Find confidential menuitem in open menus
+          const openMenus = document.querySelectorAll('div[role="menu"], div.J-M, div.aF2');
+          let menuItem = null;
+          for (const m of openMenus) {
+            if (m.offsetWidth === 0) continue;
+            const items = m.querySelectorAll('div[role="menuitem"], div.J-N, div.J-N-Jz');
+            for (const item of items) {
+              const txt = (item.textContent || item.getAttribute('aria-label') || '').toLowerCase();
+              if (
+                txt.includes('confidential') ||
+                txt.includes('confidentiel') ||
+                txt.includes('vertraulich') ||
+                txt.includes('confidencial')
+              ) {
+                menuItem = item;
+                break;
+              }
+            }
+            if (menuItem) break;
+          }
+
+          if (menuItem) {
+            console.log('[Confidential] Found Confidential item in 3-dot menu, clicking...');
+            dispatchRealisticClick(menuItem);
+            await localSleep(250);
+          } else {
+            console.warn('[Confidential] Could not locate Confidential option in 3-dot menu.');
+          }
+        } else {
+          console.warn('[Confidential] Neither Confidential button nor 3-dot menu found on compose toolbar.');
+        }
+      } else {
+        dispatchRealisticClick(confBtn);
+        await localSleep(250);
+      }
+
+      // 4. Wait for the Confidential Mode dialog to appear
+      function findOpenConfidentialDialog() {
         const dialogs = document.querySelectorAll('div[role="dialog"], div.Kj-JD');
         for (const d of dialogs) {
+          if (d.offsetWidth === 0) continue;
           const text = (d.textContent || '').toLowerCase();
           const aria = (d.getAttribute('aria-label') || '').toLowerCase();
           if (
@@ -1858,19 +2187,27 @@ async function injectedInPageComposeScript(leadData) {
             text.includes('set expiration') ||
             text.includes('sms passcode')
           ) {
-            confDialog = d;
-            break;
+            return d;
           }
         }
+        return null;
+      }
+
+      const dialogStartTime = Date.now();
+      let confDialog = null;
+
+      while (Date.now() - dialogStartTime < 3500) {
+        confDialog = findOpenConfidentialDialog();
         if (confDialog) break;
         await localSleep(80);
       }
 
       if (!confDialog) {
-        console.warn('Confidential mode dialog did not open within timeout.');
+        console.warn('[Confidential] Confidential mode dialog did not open within timeout.');
         return false;
       }
 
+      // 5. Select expiration timeframe if requested
       if (requestedExpiration && requestedExpiration !== 'default') {
         try {
           const dropdown = confDialog.querySelector('div[role="listbox"], select, div[aria-haspopup="listbox"]');
@@ -1904,11 +2241,13 @@ async function injectedInPageComposeScript(leadData) {
             }
           }
         } catch (optErr) {
-          console.warn('Could not customize expiration option:', optErr);
+          console.warn('[Confidential] Could not customize expiration option:', optErr);
         }
       }
 
+      // 6. Find and click Save button in dialog
       function findSaveBtn(dlg) {
+        if (!dlg) return null;
         const namedBtn = dlg.querySelector('button[name="save"], button[name="ok"], div[name="save"], div[name="ok"]');
         if (namedBtn) return namedBtn;
 
@@ -1931,12 +2270,12 @@ async function injectedInPageComposeScript(leadData) {
         dispatchRealisticClick(saveBtn);
         await localSleep(250);
       } else {
-        console.warn('Save button not found in Confidential Mode dialog');
+        console.warn('[Confidential] Save button not found in Confidential Mode dialog');
       }
 
       return true;
     } catch (err) {
-      console.warn('Error applying confidential mode:', err);
+      console.warn('[Confidential] Error applying confidential mode:', err);
       return false;
     }
   }
@@ -2145,7 +2484,7 @@ async function injectedInPageComposeScript(leadData) {
   // 4.5. Step 3b: If Confidential Mode is enabled, toggle confidential mode before sending or finishing
   if (confidentialMode) {
     try {
-      await applyConfidentialMode(composeBox, confidentialExpiration);
+      await applyConfidentialMode(composeBox, confidentialExpiration, confidentialCoords);
     } catch (confErr) {
       console.warn('Confidential mode toggle warning:', confErr);
     }
@@ -2345,5 +2684,243 @@ function sleep(ms) {
 async function getCurrentWindowId() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   return tab?.windowId || null;
+}
+
+/**
+ * Injected script: Interactive Coordinate Calibrator & Picker HUD
+ * Allows point-and-click coordinate capturing on Gmail window for Side Panel & custom theme setups.
+ */
+function injectedCoordinatePickerScript() {
+  const existing = document.getElementById('midey-calibrator-overlay');
+  if (existing) existing.remove();
+
+  let currentStep = 1;
+  let point1 = null;
+  let point2 = null;
+
+  // Create overlay container
+  const overlay = document.createElement('div');
+  overlay.id = 'midey-calibrator-overlay';
+  overlay.style.cssText = `
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    z-index: 2147483647;
+    cursor: crosshair;
+    background: rgba(15, 23, 42, 0.28);
+    backdrop-filter: blur(2px);
+    user-select: none;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  `;
+
+  // HUD banner
+  const hud = document.createElement('div');
+  hud.id = 'midey-calibrator-hud';
+  hud.style.cssText = `
+    position: fixed;
+    top: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #111827;
+    border: 2px solid #6366f1;
+    border-radius: 12px;
+    box-shadow: 0 12px 30px rgba(0,0,0,0.6);
+    padding: 12px 20px;
+    color: #f9fafb;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    z-index: 2147483647;
+    pointer-events: auto;
+  `;
+
+  hud.innerHTML = `
+    <div style="width: 38px; height: 38px; border-radius: 10px; background: #4f46e5; display: flex; align-items: center; justify-content: center; font-size: 20px;">
+      🎯
+    </div>
+    <div>
+      <div id="midey-hud-title" style="font-size: 13.5px; font-weight: 700; color: #ffffff;">
+        Step 1 of 2: Click on the Confidential Button (or the 3-Dot Menu)
+      </div>
+      <div id="midey-hud-desc" style="font-size: 11px; color: #9ca3af; margin-top: 2px;">
+        Click directly on the button in your Gmail compose box. Press ESC to cancel.
+      </div>
+    </div>
+    <button id="midey-calibrator-cancel-btn" style="background: rgba(239, 68, 68, 0.2); border: 1px solid rgba(239, 68, 68, 0.4); color: #fca5a5; font-size: 11px; font-weight: 600; padding: 6px 12px; border-radius: 6px; cursor: pointer;">
+      Cancel
+    </button>
+  `;
+
+  overlay.appendChild(hud);
+  document.body.appendChild(overlay);
+
+  const cancelBtn = hud.querySelector('#midey-calibrator-cancel-btn');
+  cancelBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    cleanup('Calibration cancelled.');
+  });
+
+  function addMarker(x, y, num, color) {
+    const marker = document.createElement('div');
+    marker.style.cssText = `
+      position: fixed;
+      left: ${x - 14}px;
+      top: ${y - 14}px;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: ${color};
+      color: #fff;
+      font-size: 13px;
+      font-weight: 800;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 0 12px ${color}, 0 4px 8px rgba(0,0,0,0.5);
+      border: 2px solid #ffffff;
+      z-index: 2147483647;
+      pointer-events: none;
+    `;
+    marker.textContent = num;
+    overlay.appendChild(marker);
+  }
+
+  function handleDocumentClick(e) {
+    if (e.target === cancelBtn || cancelBtn.contains(e.target)) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    const x = Math.round(e.clientX);
+    const y = Math.round(e.clientY);
+
+    if (currentStep === 1) {
+      point1 = { x, y };
+      addMarker(x, y, '1', '#6366f1');
+      currentStep = 2;
+
+      // Pass click to underlying element so Gmail actually opens the 3-dot menu or dialog!
+      overlay.style.pointerEvents = 'none';
+      const underlying = document.elementFromPoint(x, y);
+      if (underlying) {
+        underlying.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
+        underlying.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
+        underlying.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+      }
+      setTimeout(() => {
+        if (overlay) overlay.style.pointerEvents = 'auto';
+      }, 150);
+
+      // Update HUD
+      const titleEl = hud.querySelector('#midey-hud-title');
+      const descEl = hud.querySelector('#midey-hud-desc');
+      if (titleEl) titleEl.textContent = 'Step 2 of 2: Click on the Save Button (or Confidential Menu Item)';
+      if (descEl) descEl.textContent = 'Click on the Save button (or the menu item). Press ESC when done.';
+    } else if (currentStep === 2) {
+      point2 = { x, y };
+      addMarker(x, y, '2', '#10b981');
+
+      // Update HUD to success
+      const titleEl = hud.querySelector('#midey-hud-title');
+      const descEl = hud.querySelector('#midey-hud-desc');
+      if (titleEl) {
+        titleEl.textContent = '✅ Coordinates Calibrated Successfully!';
+        titleEl.style.color = '#34d399';
+      }
+      if (descEl) {
+        descEl.textContent = `Point 1: (${point1.x}, ${point1.y}) • Point 2: (${point2.x}, ${point2.y})`;
+      }
+
+      // Send to background
+      chrome.runtime.sendMessage({
+        action: 'SAVE_CONFIDENTIAL_COORDS',
+        coords: {
+          point1,
+          point2,
+          delayMs: 350
+        }
+      });
+
+      setTimeout(() => {
+        cleanup();
+      }, 1200);
+    }
+  }
+
+  function handleKeyDown(e) {
+    if (e.key === 'Escape') {
+      cleanup('Calibration cancelled.');
+    }
+  }
+
+  function cleanup(msg) {
+    window.removeEventListener('click', handleDocumentClick, true);
+    window.removeEventListener('keydown', handleKeyDown, true);
+    if (overlay && overlay.parentNode) {
+      overlay.remove();
+    }
+    if (msg) console.log('[Midey Calibrator]', msg);
+  }
+
+  window.addEventListener('click', handleDocumentClick, true);
+  window.addEventListener('keydown', handleKeyDown, true);
+}
+
+/**
+ * Injected script: Test calibrated coordinates with visual ripple indicators
+ */
+async function injectedCoordinateTestScript(coords) {
+  if (!coords || !coords.point1) return;
+
+  function showClickRipple(x, y, label, color) {
+    const rip = document.createElement('div');
+    rip.style.cssText = `
+      position: fixed;
+      left: ${x - 18}px;
+      top: ${y - 18}px;
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      border: 3px solid ${color};
+      background: rgba(99, 102, 241, 0.25);
+      color: #fff;
+      font-size: 11px;
+      font-weight: 800;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 2147483647;
+      pointer-events: none;
+      box-shadow: 0 0 15px ${color};
+      transition: transform 0.4s ease, opacity 0.4s ease;
+      transform: scale(1.3);
+    `;
+    rip.textContent = label;
+    document.body.appendChild(rip);
+    setTimeout(() => {
+      rip.style.transform = 'scale(0.8)';
+      rip.style.opacity = '0';
+      setTimeout(() => rip.remove(), 400);
+    }, 600);
+  }
+
+  function clickPoint(x, y) {
+    const el = document.elementFromPoint(x, y) || document.body;
+    const opts = { bubbles: true, cancelable: true, view: window, clientX: x, clientY: y, screenX: x, screenY: y };
+    el.dispatchEvent(new PointerEvent('pointerdown', opts));
+    el.dispatchEvent(new MouseEvent('mousedown', opts));
+    el.dispatchEvent(new PointerEvent('pointerup', opts));
+    el.dispatchEvent(new MouseEvent('mouseup', opts));
+    el.dispatchEvent(new MouseEvent('click', opts));
+  }
+
+  // Click Point 1
+  showClickRipple(coords.point1.x, coords.point1.y, '1', '#6366f1');
+  clickPoint(coords.point1.x, coords.point1.y);
+
+  if (coords.point2) {
+    await new Promise((r) => setTimeout(r, coords.delayMs || 350));
+    showClickRipple(coords.point2.x, coords.point2.y, '2', '#10b981');
+    clickPoint(coords.point2.x, coords.point2.y);
+  }
 }
 
