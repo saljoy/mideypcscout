@@ -1223,6 +1223,7 @@ function setupEventListeners() {
     currentLayout.showFilterBar = layoutShowFilterBar ? layoutShowFilterBar.checked : true;
     currentLayout.showLeads = layoutShowLeads ? layoutShowLeads.checked : true;
     currentLayout.enableMultiContent = layoutEnableMultiContent ? layoutEnableMultiContent.checked : false;
+    currentLayout.showConfidentialMode = layoutShowConfidentialMode ? layoutShowConfidentialMode.checked : true;
 
     currentSettings.enableMultiContent = currentLayout.enableMultiContent;
     setTemplateMode(currentLayout.enableMultiContent, false);
@@ -1245,6 +1246,7 @@ function setupEventListeners() {
   if (layoutShowFilterBar) layoutShowFilterBar.addEventListener('change', handleLayoutCheckboxChange);
   if (layoutShowLeads) layoutShowLeads.addEventListener('change', handleLayoutCheckboxChange);
   if (layoutEnableMultiContent) layoutEnableMultiContent.addEventListener('change', handleLayoutCheckboxChange);
+  if (layoutShowConfidentialMode) layoutShowConfidentialMode.addEventListener('change', handleLayoutCheckboxChange);
 
   if (densitySelect) {
     densitySelect.addEventListener('change', async () => {
@@ -1269,6 +1271,7 @@ function setupEventListeners() {
         showFilterBar: true,
         showLeads: true,
         enableMultiContent: false,
+        showConfidentialMode: false,
         density: 'compact'
       };
       currentSettings.enableMultiContent = false;
@@ -1292,6 +1295,7 @@ function setupEventListeners() {
         showFilterBar: true,
         showLeads: true,
         enableMultiContent: currentLayout.enableMultiContent || false,
+        showConfidentialMode: false,
         density: 'standard'
       };
       applyLayout(currentLayout);
@@ -1313,6 +1317,7 @@ function setupEventListeners() {
         showFilterBar: true,
         showLeads: true,
         enableMultiContent: currentLayout.enableMultiContent || false,
+        showConfidentialMode: true,
         density: 'compact'
       };
       applyLayout(currentLayout);
@@ -1334,6 +1339,7 @@ function setupEventListeners() {
         showFilterBar: true,
         showLeads: true,
         enableMultiContent: currentLayout.enableMultiContent || false,
+        showConfidentialMode: true,
         density: currentLayout.density || 'compact'
       };
       applyLayout(currentLayout);
@@ -1412,6 +1418,53 @@ function updateBccModeUI(isBcc, batchSize = 10) {
   }
   if (bccModeCard) {
     bccModeCard.classList.toggle('is-bcc', Boolean(isBcc));
+  }
+}
+
+/**
+ * Get human-readable confidential expiration label
+ */
+function getConfidentialExpirationLabel(expKey) {
+  const map = {
+    '1d': '1 day',
+    '1w': '1 week',
+    '1m': '1 month',
+    '3m': '3 months',
+    '5y': '5 years'
+  };
+  return map[expKey] || '1 week';
+}
+
+/**
+ * Update Gmail Confidential Mode Card UI
+ */
+function updateConfidentialModeUI(isConfidential, expiration = '1w') {
+  if (enableConfidentialModeInput) enableConfidentialModeInput.checked = Boolean(isConfidential);
+  if (confidentialExpirationSelect && document.activeElement !== confidentialExpirationSelect) {
+    confidentialExpirationSelect.value = expiration || '1w';
+  }
+  if (confidentialSettingsContent) {
+    confidentialSettingsContent.style.display = isConfidential ? 'block' : 'none';
+  }
+  const expText = getConfidentialExpirationLabel(expiration);
+  if (confidentialModeBadge) {
+    if (isConfidential) {
+      confidentialModeBadge.textContent = `🔒 Active (${expText})`;
+      confidentialModeBadge.className = 'badge badge-sent';
+    } else {
+      confidentialModeBadge.textContent = 'Off';
+      confidentialModeBadge.className = 'brand-tag';
+    }
+  }
+  if (confidentialModeDesc) {
+    if (isConfidential) {
+      confidentialModeDesc.textContent = `Expires in ${expText}. Recipients cannot forward, copy, print, or download.`;
+    } else {
+      confidentialModeDesc.textContent = 'Set email expiration date & prevent recipients from forwarding, copying, or printing.';
+    }
+  }
+  if (confidentialModeCard) {
+    confidentialModeCard.classList.toggle('is-confidential', Boolean(isConfidential));
   }
 }
 
@@ -1612,6 +1665,9 @@ function applyLayout(layout) {
   if (layoutShowFilterBar) layoutShowFilterBar.checked = currentLayout.showFilterBar !== false;
   if (layoutShowLeads) layoutShowLeads.checked = currentLayout.showLeads !== false;
   if (layoutEnableMultiContent) layoutEnableMultiContent.checked = currentLayout.enableMultiContent === true;
+  if (layoutShowConfidentialMode) layoutShowConfidentialMode.checked = currentLayout.showConfidentialMode !== false;
+  if (confidentialModeCard) confidentialModeCard.style.display = currentLayout.showConfidentialMode !== false ? '' : 'none';
+  if (confidentialSettingsContent && currentLayout.showConfidentialMode === false) confidentialSettingsContent.style.display = 'none';
   if (densitySelect) densitySelect.value = currentLayout.density || 'compact';
 
   const isAnyHidden =
@@ -1624,7 +1680,8 @@ function applyLayout(layout) {
     currentLayout.showQueue === false ||
     currentLayout.showStats === false ||
     currentLayout.showFilterBar === false ||
-    currentLayout.showLeads === false;
+    currentLayout.showLeads === false ||
+    currentLayout.showConfidentialMode === false;
 
   if (minimalistNotice) {
     minimalistNotice.style.display = isAnyHidden ? 'flex' : 'none';
@@ -1652,6 +1709,7 @@ function openLayoutModal() {
   if (layoutShowFilterBar) layoutShowFilterBar.checked = currentLayout.showFilterBar !== false;
   if (layoutShowLeads) layoutShowLeads.checked = currentLayout.showLeads !== false;
   if (layoutEnableMultiContent) layoutEnableMultiContent.checked = currentLayout.enableMultiContent === true;
+  if (layoutShowConfidentialMode) layoutShowConfidentialMode.checked = currentLayout.showConfidentialMode !== false;
   if (densitySelect) densitySelect.value = currentLayout.density || 'compact';
   if (layoutModal) layoutModal.classList.add('open');
 }
