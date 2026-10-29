@@ -24,7 +24,9 @@ let currentSettings = {
   subjectTemplates: [],
   bodyTemplates: [],
   lastSubjectIndex: 0,
-  lastBodyIndex: 0
+  lastBodyIndex: 0,
+  enableConfidentialMode: false,
+  confidentialExpiration: '1w'
 };
 let currentTheme = 'dark';
 let currentFilter = '';
@@ -68,6 +70,7 @@ let currentLayout = {
   showFilterBar: true,
   showLeads: true,
   enableMultiContent: false,
+  showConfidentialMode: true,
   density: 'compact'
 };
 
@@ -256,6 +259,15 @@ const bccModeBadge = document.getElementById('bccModeBadge');
 const bccModeDesc = document.getElementById('bccModeDesc');
 const bccSettingsContent = document.getElementById('bccSettingsContent');
 
+// DOM Elements - Gmail Confidential Mode
+const confidentialModeCard = document.getElementById('confidentialModeCard');
+const enableConfidentialModeInput = document.getElementById('enableConfidentialModeInput');
+const confidentialModeBadge = document.getElementById('confidentialModeBadge');
+const confidentialModeDesc = document.getElementById('confidentialModeDesc');
+const confidentialSettingsContent = document.getElementById('confidentialSettingsContent');
+const confidentialExpirationSelect = document.getElementById('confidentialExpirationSelect');
+const layoutShowConfidentialMode = document.getElementById('layoutShowConfidentialMode');
+
 // DOM Elements - Stats & Utilities
 const statTotal = document.getElementById('statTotal');
 const statPending = document.getElementById('statPending');
@@ -344,6 +356,7 @@ async function loadInitialState() {
   autoCloseTabInput.checked = currentSettings.autoCloseTab !== false;
   updateSendModeUI(Boolean(currentSettings.inPageAutoSend));
   updateBccModeUI(Boolean(currentSettings.enableBccMode), currentSettings.bccBatchSize || 10);
+  updateConfidentialModeUI(Boolean(currentSettings.enableConfidentialMode), currentSettings.confidentialExpiration || '1w');
 
   enableSignatureCheckbox.checked = currentSettings.enableSignature === true;
   signatureRotationSelect.value = currentSettings.signatureRotationMode || 'sequential';
@@ -493,6 +506,9 @@ function setupStorageListener() {
       }
       if (document.activeElement !== enableBccModeInput && document.activeElement !== bccBatchSizeInput) {
         updateBccModeUI(Boolean(currentSettings.enableBccMode), currentSettings.bccBatchSize || 10);
+      }
+      if (document.activeElement !== enableConfidentialModeInput && document.activeElement !== confidentialExpirationSelect) {
+        updateConfidentialModeUI(Boolean(currentSettings.enableConfidentialMode), currentSettings.confidentialExpiration || '1w');
       }
       if (changes.settings.newValue?.keepAwakeDuringQueue !== undefined && autoKeepAwakeOnQueueCheckbox) {
         autoKeepAwakeOnQueueCheckbox.checked = currentSettings.keepAwakeDuringQueue !== false;
@@ -960,6 +976,39 @@ function setupEventListeners() {
         bccBatchSize: val
       };
       updateBccModeUI(Boolean(currentSettings.enableBccMode), val);
+      await chrome.storage.local.set({ settings: currentSettings });
+    });
+  }
+
+  // Gmail Confidential Mode Switch Toggle
+  if (enableConfidentialModeInput) {
+    enableConfidentialModeInput.addEventListener('change', async (e) => {
+      const enabled = e.target.checked;
+      currentSettings = {
+        ...currentSettings,
+        enableConfidentialMode: enabled
+      };
+      updateConfidentialModeUI(enabled, currentSettings.confidentialExpiration || '1w');
+      await chrome.storage.local.set({ settings: currentSettings });
+      showBanner(
+        statusBanner,
+        enabled
+          ? `🔒 Gmail Confidential Mode enabled (Expires in ${getConfidentialExpirationLabel(currentSettings.confidentialExpiration)}).`
+          : 'Gmail Confidential Mode disabled.',
+        'success'
+      );
+    });
+  }
+
+  // Confidential Expiration Select
+  if (confidentialExpirationSelect) {
+    confidentialExpirationSelect.addEventListener('change', async (e) => {
+      const val = e.target.value || '1w';
+      currentSettings = {
+        ...currentSettings,
+        confidentialExpiration: val
+      };
+      updateConfidentialModeUI(Boolean(currentSettings.enableConfidentialMode), val);
       await chrome.storage.local.set({ settings: currentSettings });
     });
   }
