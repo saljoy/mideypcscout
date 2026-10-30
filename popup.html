@@ -868,7 +868,7 @@
             <span id="confidentialModeBadge" class="brand-tag">Off</span>
           </div>
           <div id="confidentialModeDesc" class="send-mode-desc">
-            Automates Gmail Confidential Mode using calibrated click coordinates.
+            Automates Gmail Confidential Mode across any screen size and Chrome version.
           </div>
         </div>
         <label class="switch-toggle" title="Toggle Gmail Confidential Mode on/off for sent emails">
@@ -877,20 +877,48 @@
         </label>
       </div>
 
-      <!-- Confidential Mode Coordinate Options (Visible when toggle is ON) -->
+      <!-- Confidential Mode Options (Visible when toggle is ON) -->
       <div id="confidentialSettingsContent"
         style="display: none; margin-top: 6px; padding: 9px 10px; background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm);">
-        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
-          <span style="font-size: 11.5px; font-weight: 600; color: var(--text-main); display: flex; align-items: center; gap: 5px;">
-            <span>🎯 Coordinate Automation Calibrator</span>
-          </span>
-          <span class="badge" style="font-size: 9.5px; padding: 2px 6px; background: rgba(79, 70, 229, 0.15); color: #818cf8; border-radius: 4px;">Coordinate Mode</span>
+        
+        <!-- Mode Switcher: Automatic vs Manual Coordinates -->
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; background: var(--bg-input); padding: 5px 8px; border-radius: var(--radius-sm); border: 1px solid var(--border-subtle);">
+          <span style="font-size: 10.5px; font-weight: 600; color: var(--text-main);">Execution Mode:</span>
+          <div style="display: flex; gap: 4px;">
+            <button type="button" id="confidentialModeAutoBtn" class="btn btn-primary btn-xs" style="padding: 2px 8px; font-size: 10px;">🤖 Automatic (Smart DOM)</button>
+            <button type="button" id="confidentialModeManualBtn" class="btn btn-secondary btn-xs" style="padding: 2px 8px; font-size: 10px;">🎯 Manual (Coordinates)</button>
+          </div>
         </div>
-        <p style="font-size: 10.5px; color: var(--text-muted); margin-bottom: 8px; line-height: 1.4;">
-          Calibrate the exact click points on your Gmail window to automate turning on Confidential Mode without relying on brittle DOM selectors.
-        </p>
 
-        <div id="confidentialCoordsDetails">
+        <!-- Automatic Mode Section -->
+        <div id="autoConfidentialDetails" style="display: block;">
+          <div style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 4px; padding: 8px 10px; margin-bottom: 8px;">
+            <div style="display: flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 700; color: var(--success); margin-bottom: 3px;">
+              <span>✨ Smart Dynamic Detection Active</span>
+            </div>
+            <p style="font-size: 10px; color: var(--text-muted); margin: 0; line-height: 1.4;">
+              Automatically finds Gmail's confidential lock icon or 3-dot (⋮) menu across any screen size, window layout, and Chrome version. No manual clicking or coordinate calibration required.
+            </p>
+          </div>
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px;">
+            <button id="testConfidentialAutoBtn" class="btn btn-secondary btn-xs" type="button" style="display: flex; align-items: center; gap: 4px; flex: 1; justify-content: center;">
+              <span>⚡ Test Auto Mode on Gmail</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Manual Coordinates Mode Section -->
+        <div id="confidentialCoordsDetails" style="display: none;">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+            <span style="font-size: 11px; font-weight: 600; color: var(--text-main); display: flex; align-items: center; gap: 5px;">
+              <span>🎯 Coordinate Automation Calibrator</span>
+            </span>
+            <span class="badge" style="font-size: 9.5px; padding: 2px 6px; background: rgba(79, 70, 229, 0.15); color: #818cf8; border-radius: 4px;">Manual Mode</span>
+          </div>
+          <p style="font-size: 10.5px; color: var(--text-muted); margin-bottom: 8px; line-height: 1.4;">
+            Calibrate the exact click points on your Gmail window as a manual fallback.
+          </p>
+
           <!-- Mode Switcher: 3-Point (Side Panel / 3-Dot) vs 2-Point (Full Screen / Direct) -->
           <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; background: var(--bg-input); padding: 5px 8px; border-radius: var(--radius-sm); border: 1px solid var(--border-subtle);">
             <span style="font-size: 10.5px; font-weight: 600; color: var(--text-main);">Calibration Mode:</span>
@@ -945,6 +973,10 @@
               </div>
             </div>
           </div>
+        </div>
+
+        <div style="font-size: 9.5px; color: var(--text-dim); margin-top: 6px; line-height: 1.3; font-style: italic;">
+          💡 In Automatic Mode, calibrated coordinates serve as an instant backup fallback if a custom Gmail theme or layout requires it.
         </div>
       </div>
 

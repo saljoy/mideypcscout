@@ -26,7 +26,10 @@ let currentSettings = {
   lastSubjectIndex: 0,
   lastBodyIndex: 0,
   enableConfidentialMode: false,
-  confidentialExpiration: '1w'
+  confidentialAutoMode: true,
+  confidentialExpiration: '1w',
+  enableConfidentialCoordsOverride: false,
+  confidentialCoordinates: { mode: '3point', point1: null, point2: null, point3: null, delayMs: 350, delay1Ms: 350, delay2Ms: 400 }
 };
 let currentTheme = 'dark';
 let currentFilter = '';
@@ -335,6 +338,10 @@ const enableConfidentialModeInput = document.getElementById('enableConfidentialM
 const confidentialModeBadge = document.getElementById('confidentialModeBadge');
 const confidentialModeDesc = document.getElementById('confidentialModeDesc');
 const confidentialSettingsContent = document.getElementById('confidentialSettingsContent');
+const confidentialModeAutoBtn = document.getElementById('confidentialModeAutoBtn');
+const confidentialModeManualBtn = document.getElementById('confidentialModeManualBtn');
+const autoConfidentialDetails = document.getElementById('autoConfidentialDetails');
+const testConfidentialAutoBtn = document.getElementById('testConfidentialAutoBtn');
 const confidentialCoordsDetails = document.getElementById('confidentialCoordsDetails');
 const coordsMode3PointBtn = document.getElementById('coordsMode3PointBtn');
 const coordsMode2PointBtn = document.getElementById('coordsMode2PointBtn');
@@ -1304,13 +1311,51 @@ function setupEventListeners() {
       updateConfidentialModeUI(enabled, currentSettings.confidentialCoordinates);
       await chrome.storage.local.set({ settings: currentSettings });
       if (enabled) {
-        if (!currentSettings.confidentialCoordinates || !currentSettings.confidentialCoordinates.point1) {
+        if (currentSettings.confidentialAutoMode !== false) {
+          showBanner(statusBanner, '🤖 Confidential Mode enabled! Smart DOM automation will automatically handle Gmail controls on any screen size.', 'success');
+        } else if (!currentSettings.confidentialCoordinates || !currentSettings.confidentialCoordinates.point1) {
           showBanner(statusBanner, '🔒 Confidential Mode enabled! Please click "🎯 Calibrate on Gmail" below to set your click points.', 'info');
         } else {
           showBanner(statusBanner, '🔒 Confidential Mode enabled (using calibrated coordinates).', 'success');
         }
       } else {
         showBanner(statusBanner, 'Gmail Confidential Mode disabled.', 'info');
+      }
+    });
+  }
+
+  if (confidentialModeAutoBtn) {
+    confidentialModeAutoBtn.addEventListener('click', async () => {
+      currentSettings = {
+        ...currentSettings,
+        confidentialAutoMode: true
+      };
+      updateConfidentialModeUI(Boolean(currentSettings.enableConfidentialMode), currentSettings.confidentialCoordinates);
+      await chrome.storage.local.set({ settings: currentSettings });
+      showBanner(statusBanner, '🤖 Switched to Automatic Mode (Smart DOM detection for any screen size or Chrome version).', 'info');
+    });
+  }
+
+  if (confidentialModeManualBtn) {
+    confidentialModeManualBtn.addEventListener('click', async () => {
+      currentSettings = {
+        ...currentSettings,
+        confidentialAutoMode: false
+      };
+      updateConfidentialModeUI(Boolean(currentSettings.enableConfidentialMode), currentSettings.confidentialCoordinates);
+      await chrome.storage.local.set({ settings: currentSettings });
+      showBanner(statusBanner, '🎯 Switched to Manual Coordinates Mode.', 'info');
+    });
+  }
+
+  if (testConfidentialAutoBtn) {
+    testConfidentialAutoBtn.addEventListener('click', async () => {
+      showBanner(statusBanner, '⚡ Testing Automatic Confidential Mode on Gmail...', 'info');
+      const response = await chrome.runtime.sendMessage({ action: 'TEST_CONFIDENTIAL_AUTO' });
+      if (!response?.success) {
+        showBanner(statusBanner, response?.error || 'Could not test automatic confidential mode.', 'error');
+      } else {
+        showBanner(statusBanner, response.message || '⚡ Automatic Confidential Mode activated successfully on Gmail!', 'success');
       }
     });
   }
@@ -1933,13 +1978,36 @@ function updateConfidentialModeUI(isConfidential, coords) {
   if (confidentialSettingsContent) {
     confidentialSettingsContent.style.display = isConfidential ? 'block' : 'none';
   }
+  const isAuto = currentSettings.confidentialAutoMode !== false;
   const c = coords || currentSettings.confidentialCoordinates || {};
   const mode = c.mode || '3point';
   const hasCalibration = Boolean(c.point1);
 
+  // Toggle Auto vs Manual panel visibility
+  if (autoConfidentialDetails) {
+    autoConfidentialDetails.style.display = isAuto ? 'block' : 'none';
+  }
+  if (confidentialCoordsDetails) {
+    confidentialCoordsDetails.style.display = isAuto ? 'none' : 'block';
+  }
+
+  // Toggle Mode button styles
+  if (confidentialModeAutoBtn && confidentialModeManualBtn) {
+    if (isAuto) {
+      confidentialModeAutoBtn.className = 'btn btn-primary btn-xs';
+      confidentialModeManualBtn.className = 'btn btn-secondary btn-xs';
+    } else {
+      confidentialModeAutoBtn.className = 'btn btn-secondary btn-xs';
+      confidentialModeManualBtn.className = 'btn btn-primary btn-xs';
+    }
+  }
+
   if (confidentialModeBadge) {
     if (isConfidential) {
-      if (hasCalibration) {
+      if (isAuto) {
+        confidentialModeBadge.textContent = '🤖 Smart Auto';
+        confidentialModeBadge.className = 'badge badge-sent';
+      } else if (hasCalibration) {
         confidentialModeBadge.textContent = `🔒 Calibrated (${mode === '3point' ? '3-Pt' : '2-Pt'})`;
         confidentialModeBadge.className = 'badge badge-sent';
       } else {
@@ -1951,17 +2019,21 @@ function updateConfidentialModeUI(isConfidential, coords) {
       confidentialModeBadge.className = 'brand-tag';
     }
   }
+
   if (confidentialModeDesc) {
     if (isConfidential) {
-      if (hasCalibration) {
+      if (isAuto) {
+        confidentialModeDesc.textContent = 'Active: Automatically detects Gmail confidential controls across any screen size.';
+      } else if (hasCalibration) {
         confidentialModeDesc.textContent = `Active: Automates Gmail Confidential Mode via ${mode === '3point' ? '3-point' : '2-point'} click coordinates.`;
       } else {
         confidentialModeDesc.textContent = 'Active: Click "🎯 Calibrate on Gmail" below to set your click points.';
       }
     } else {
-      confidentialModeDesc.textContent = 'Automates Gmail Confidential Mode using calibrated click coordinates.';
+      confidentialModeDesc.textContent = 'Automates Gmail Confidential Mode across any screen size and Chrome version.';
     }
   }
+
   if (confidentialModeCard) {
     confidentialModeCard.classList.toggle('is-confidential', Boolean(isConfidential));
   }
