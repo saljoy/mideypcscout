@@ -1023,6 +1023,38 @@
     </div>
 
     <div class="section-collapsible-content" style="margin-top: 10px;">
+      <!-- Queue Organization Toolbar: Move Sent to Bottom & Remove Sent -->
+      <div id="queueOrganizeBar" class="queue-organize-bar">
+        <div class="queue-organize-label">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="8" y1="6" x2="21" y2="6" />
+            <line x1="8" y1="12" x2="21" y2="12" />
+            <line x1="8" y1="18" x2="21" y2="18" />
+            <line x1="3" y1="6" x2="3.01" y2="6" />
+            <line x1="3" y1="12" x2="3.01" y2="12" />
+            <line x1="3" y1="18" x2="3.01" y2="18" />
+          </svg>
+          <span>Sent Leads:</span>
+        </div>
+        <div class="queue-organize-actions">
+          <button id="moveSentToBottomBtn" class="btn btn-secondary btn-xs" type="button"
+            title="Move sent leads to the bottom so unsent leads stay at the top">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 5v14M19 12l-7 7-7-7" />
+            </svg>
+            <span>Move to Bottom</span>
+          </button>
+          <button id="removeSentLeadsBtn" class="btn btn-outline-danger btn-xs" type="button"
+            title="Remove only sent leads from the queue (preserves pending and error leads)">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="3 6 5 6 21 6" />
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+            </svg>
+            <span>Remove Sent</span>
+          </button>
+        </div>
+      </div>
+
       <!-- Scrollable Leads Container -->
       <div id="leadsContainer" class="leads-list">
         <div class="empty-state">

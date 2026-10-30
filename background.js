@@ -188,6 +188,29 @@ async function handleRuntimeMessage(message, sender) {
       return { success: true };
     }
 
+    case 'MOVE_SENT_TO_BOTTOM': {
+      const { leads = [] } = await chrome.storage.local.get('leads');
+      const unsent = leads.filter((l) => l.status !== 'sent');
+      const sent = leads.filter((l) => l.status === 'sent');
+      if (sent.length === 0) {
+        return { success: true, count: 0, message: 'No sent leads in queue.' };
+      }
+      const reordered = [...unsent, ...sent];
+      await chrome.storage.local.set({ leads: reordered });
+      return { success: true, count: sent.length, message: `Moved ${sent.length} sent leads to bottom.` };
+    }
+
+    case 'REMOVE_SENT_LEADS': {
+      const { leads = [] } = await chrome.storage.local.get('leads');
+      const unsent = leads.filter((l) => l.status !== 'sent');
+      const sentCount = leads.length - unsent.length;
+      if (sentCount === 0) {
+        return { success: true, count: 0, message: 'No sent leads in queue.' };
+      }
+      await chrome.storage.local.set({ leads: unsent });
+      return { success: true, count: sentCount, message: `Removed ${sentCount} sent leads from queue.` };
+    }
+
     case 'MANUAL_IN_PAGE_COMPOSE': {
       const { lead } = message || {};
       if (!lead) {

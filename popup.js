@@ -369,6 +369,8 @@ const exportCsvBtn = document.getElementById('exportCsvBtn');
 const exportCsvQuickBtn = document.getElementById('exportCsvQuickBtn');
 const resetStatusBtn = document.getElementById('resetStatusBtn');
 const clearAllBtn = document.getElementById('clearAllBtn');
+const moveSentToBottomBtn = document.getElementById('moveSentToBottomBtn');
+const removeSentLeadsBtn = document.getElementById('removeSentLeadsBtn');
 const leadsContainer = document.getElementById('leadsContainer');
 
 // DOM Elements - Preview Modal
@@ -588,9 +590,12 @@ function setupStorageListener() {
       renderStats();
       updateFilterMatchStats();
       updateDiscoveredCsvTagsFromLeads();
-      if (
-        oldLeads.length > 0 &&
+      const isSameOrder =
         oldLeads.length === currentLeads.length &&
+        oldLeads.every((l, i) => l.id === currentLeads[i]?.id);
+      if (
+        isSameOrder &&
+        oldLeads.length > 0 &&
         leadsContainer.children.length > 0 &&
         !leadsContainer.querySelector('.empty-state')
       ) {
@@ -1503,6 +1508,67 @@ function setupEventListeners() {
       showBanner(statusBanner, 'All leads cleared.', 'success');
     }
   });
+
+  // Move Sent Leads to Bottom
+  if (moveSentToBottomBtn) {
+    moveSentToBottomBtn.addEventListener('click', async () => {
+      const sentLeads = currentLeads.filter((l) => l.status === 'sent');
+      if (sentLeads.length === 0) {
+        showBanner(statusBanner, 'No sent leads in the queue to move.', 'info');
+        return;
+      }
+
+      const firstSentIdx = currentLeads.findIndex((l) => l.status === 'sent');
+      const lastUnsentIdx = currentLeads.reduce((acc, l, idx) => (l.status !== 'sent' ? idx : acc), -1);
+
+      if (lastUnsentIdx === -1 || firstSentIdx > lastUnsentIdx) {
+        showBanner(statusBanner, 'Sent leads are already positioned at the bottom of the queue.', 'info');
+        return;
+      }
+
+      const unsent = currentLeads.filter((l) => l.status !== 'sent');
+      const reordered = [...unsent, ...sentLeads];
+
+      currentLeads = reordered;
+      renderLeadsList();
+
+      await chrome.runtime.sendMessage({ action: 'MOVE_SENT_TO_BOTTOM' });
+      showBanner(
+        statusBanner,
+        `✓ Moved ${sentLeads.length} sent lead${sentLeads.length === 1 ? '' : 's'} to the bottom. Unsent leads are at the top.`,
+        'success'
+      );
+    });
+  }
+
+  // Remove Sent Leads from Queue
+  if (removeSentLeadsBtn) {
+    removeSentLeadsBtn.addEventListener('click', async () => {
+      const sentLeads = currentLeads.filter((l) => l.status === 'sent');
+      if (sentLeads.length === 0) {
+        showBanner(statusBanner, 'No sent leads in the queue to remove.', 'info');
+        return;
+      }
+
+      const confirmMsg = `Remove ${sentLeads.length} sent lead${sentLeads.length === 1 ? '' : 's'} from the queue?\n(All pending and error leads will be preserved).`;
+      if (!confirm(confirmMsg)) {
+        return;
+      }
+
+      const remaining = currentLeads.filter((l) => l.status !== 'sent');
+      currentLeads = remaining;
+      renderStats();
+      updateFilterMatchStats();
+      renderLeadsList();
+
+      await chrome.runtime.sendMessage({ action: 'REMOVE_SENT_LEADS' });
+      showBanner(
+        statusBanner,
+        `✓ Removed ${sentLeads.length} sent lead${sentLeads.length === 1 ? '' : 's'} from the queue.`,
+        'success'
+      );
+    });
+  }
 
   // Modal Close
   modalCloseBtn.addEventListener('click', () => previewModal.classList.remove('open'));
