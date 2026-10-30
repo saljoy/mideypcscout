@@ -2019,3 +2019,65 @@ body {
   white-space: nowrap;
   flex: 1;
 }
+
+/* DevTools-Style Dock Controller */
+.dock-control-group {
+  display: inline-flex;
+  align-items: center;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 1px;
+  gap: 1px;
+}
+
+.dock-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: transparent;
+  color: var(--text-muted);
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.dock-btn:hover {
+  background: var(--bg-surface-hover);
+  color: var(--text-main);
+}
+
+.dock-btn.active {
+  background: var(--primary);
+  color: #ffffff;
+}
+
+.dock-btn-close {
+  color: var(--danger);
+  font-weight: 700;
+  font-size: 11px;
+}
+
+.dock-btn-close:hover {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+}
+
+/* In-Page and Wide Dock Layout Enhancements */
+body.dock-inpage {
+  border-radius: 0;
+  box-shadow: none;
+}
+
+body.dock-bottom {
+  max-width: 100% !important;
+  width: 100% !important;
+}
+
+body.dock-bottom .analytics-stats-grid {
+  grid-template-columns: repeat(4, 1fr);
+}

@@ -142,8 +142,16 @@ let isFilterQueueViewActive = false;
 const themeToggleBtn = document.getElementById('themeToggleBtn');
 const themeIcon = document.getElementById('themeIcon');
 const themeLabel = document.getElementById('themeLabel');
-const openSidePanelBtn = document.getElementById('openSidePanelBtn');
 const lockAppBtn = document.getElementById('lockAppBtn');
+
+// DOM Elements - DevTools Dock Controls
+const dockControlGroup = document.getElementById('dockControlGroup');
+const dockPopoutBtn = document.getElementById('dockPopoutBtn');
+const dockLeftBtn = document.getElementById('dockLeftBtn');
+const dockBottomBtn = document.getElementById('dockBottomBtn');
+const dockRightBtn = document.getElementById('dockRightBtn');
+const dockSidePanelBtn = document.getElementById('dockSidePanelBtn');
+const dockCloseBtn = document.getElementById('dockCloseBtn');
 
 // DOM Elements - Secret Brand Trigger & JSON Unlocking
 const brandSecretTrigger = document.getElementById('brandSecretTrigger');
@@ -755,20 +763,138 @@ function setupEventListeners() {
     });
   });
 
-  // Open in Side Panel
-  openSidePanelBtn.addEventListener('click', async () => {
-    try {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (tab?.windowId && chrome.sidePanel && chrome.sidePanel.open) {
-        await chrome.sidePanel.open({ windowId: tab.windowId });
-        window.close();
-      } else {
-        await chrome.runtime.sendMessage({ action: 'OPEN_SIDE_PANEL' });
-      }
-    } catch (err) {
-      console.warn('Could not open side panel:', err);
+  // Initialize and apply Dock Mode from URL params or stored settings
+  const dockUrlParams = new URLSearchParams(window.location.search);
+  const currentDock = dockUrlParams.get('dock'); // 'window', 'inpage', etc.
+  const currentPos = dockUrlParams.get('pos'); // 'left', 'bottom', 'right'
+
+  if (currentPos === 'bottom') {
+    document.body.classList.add('dock-bottom');
+  }
+  if (currentDock === 'inpage') {
+    document.body.classList.add('dock-inpage');
+    if (dockCloseBtn) dockCloseBtn.style.display = 'flex';
+  } else if (currentDock === 'window') {
+    if (dockCloseBtn) dockCloseBtn.style.display = 'flex';
+  }
+
+  // Update active state on dock buttons
+  function updateDockButtonsActiveState() {
+    [dockPopoutBtn, dockLeftBtn, dockBottomBtn, dockRightBtn, dockSidePanelBtn].forEach((btn) => {
+      btn?.classList.remove('active');
+    });
+
+    if (currentDock === 'window') {
+      dockPopoutBtn?.classList.add('active');
+    } else if (currentDock === 'inpage') {
+      if (currentPos === 'left') dockLeftBtn?.classList.add('active');
+      else if (currentPos === 'bottom') dockBottomBtn?.classList.add('active');
+      else dockRightBtn?.classList.add('active');
+    } else {
+      chrome.storage.local.get('dockMode').then(({ dockMode }) => {
+        if (dockMode === 'sidepanel') dockSidePanelBtn?.classList.add('active');
+      });
     }
-  });
+  }
+  updateDockButtonsActiveState();
+
+  // DevTools Dock Event Listeners
+  if (dockPopoutBtn) {
+    dockPopoutBtn.addEventListener('click', async () => {
+      showBanner(statusBanner, 'Opening in separate floating window...', 'info');
+      try {
+        const res = await chrome.runtime.sendMessage({ action: 'DOCK_POPOUT' });
+        if (res?.success) {
+          if (currentDock === 'inpage') {
+            await chrome.runtime.sendMessage({ action: 'CLOSE_INPAGE_DOCK' });
+          } else if (currentDock !== 'window') {
+            window.close();
+          }
+        }
+      } catch (err) {
+        showBanner(statusBanner, `Error opening popout: ${err.message}`, 'error');
+      }
+    });
+  }
+
+  if (dockLeftBtn) {
+    dockLeftBtn.addEventListener('click', async () => {
+      showBanner(statusBanner, 'Docking to left of Gmail...', 'info');
+      try {
+        const res = await chrome.runtime.sendMessage({ action: 'DOCK_INPAGE', position: 'left' });
+        if (res?.success) {
+          if (currentDock !== 'inpage') window.close();
+        } else {
+          showBanner(statusBanner, res?.error || 'Failed to dock in-page. Open Gmail first.', 'error');
+        }
+      } catch (err) {
+        showBanner(statusBanner, `Error docking: ${err.message}`, 'error');
+      }
+    });
+  }
+
+  if (dockBottomBtn) {
+    dockBottomBtn.addEventListener('click', async () => {
+      showBanner(statusBanner, 'Docking to bottom of Gmail...', 'info');
+      try {
+        const res = await chrome.runtime.sendMessage({ action: 'DOCK_INPAGE', position: 'bottom' });
+        if (res?.success) {
+          if (currentDock !== 'inpage') window.close();
+        } else {
+          showBanner(statusBanner, res?.error || 'Failed to dock in-page. Open Gmail first.', 'error');
+        }
+      } catch (err) {
+        showBanner(statusBanner, `Error docking: ${err.message}`, 'error');
+      }
+    });
+  }
+
+  if (dockRightBtn) {
+    dockRightBtn.addEventListener('click', async () => {
+      showBanner(statusBanner, 'Docking to right of Gmail...', 'info');
+      try {
+        const res = await chrome.runtime.sendMessage({ action: 'DOCK_INPAGE', position: 'right' });
+        if (res?.success) {
+          if (currentDock !== 'inpage') window.close();
+        } else {
+          showBanner(statusBanner, res?.error || 'Failed to dock in-page. Open Gmail first.', 'error');
+        }
+      } catch (err) {
+        showBanner(statusBanner, `Error docking: ${err.message}`, 'error');
+      }
+    });
+  }
+
+  if (dockSidePanelBtn) {
+    dockSidePanelBtn.addEventListener('click', async () => {
+      try {
+        if (currentDock === 'inpage') {
+          await chrome.runtime.sendMessage({ action: 'CLOSE_INPAGE_DOCK' });
+        }
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (tab?.windowId && chrome.sidePanel && chrome.sidePanel.open) {
+          await chrome.sidePanel.open({ windowId: tab.windowId });
+          await chrome.storage.local.set({ dockMode: 'sidepanel' });
+          if (currentDock !== 'inpage') window.close();
+        } else {
+          await chrome.runtime.sendMessage({ action: 'OPEN_SIDE_PANEL' });
+          if (currentDock !== 'inpage') window.close();
+        }
+      } catch (err) {
+        console.warn('Could not open side panel:', err);
+      }
+    });
+  }
+
+  if (dockCloseBtn) {
+    dockCloseBtn.addEventListener('click', async () => {
+      if (currentDock === 'inpage') {
+        await chrome.runtime.sendMessage({ action: 'CLOSE_INPAGE_DOCK' });
+      } else {
+        window.close();
+      }
+    });
+  }
 
   // JSON & Plain Text Batch Events
   loadLeadsBtn.addEventListener('click', handleLoadJsonLeads);

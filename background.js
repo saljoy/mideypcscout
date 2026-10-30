@@ -258,14 +258,85 @@ async function handleRuntimeMessage(message, sender) {
     }
 
     case 'OPEN_SIDE_PANEL': {
+      await removeInPageDockFromAllTabs();
       if (chrome.sidePanel && typeof chrome.sidePanel.open === 'function') {
         const targetWindowId = windowId || (await getCurrentWindowId());
         if (targetWindowId) {
           await chrome.sidePanel.open({ windowId: targetWindowId });
+          await chrome.storage.local.set({ dockMode: 'sidepanel' });
           return { success: true };
         }
       }
       return { success: false, error: 'Side panel API unavailable or window not found.' };
+    }
+
+    case 'DOCK_POPOUT': {
+      await removeInPageDockFromAllTabs();
+      const width = 480;
+      const height = 760;
+      let left = 100;
+      let top = 80;
+      try {
+        const curWin = await chrome.windows.getCurrent();
+        if (curWin) {
+          left = Math.max(0, (curWin.left || 0) + (curWin.width || 1200) - width - 20);
+          top = Math.max(0, (curWin.top || 0) + 40);
+        }
+      } catch (_) {}
+
+      const newWin = await chrome.windows.create({
+        url: chrome.runtime.getURL('popup.html?dock=window'),
+        type: 'popup',
+        width,
+        height,
+        left,
+        top,
+        focused: true
+      });
+      await chrome.storage.local.set({ dockMode: 'popout' });
+      return { success: true, windowId: newWin.id };
+    }
+
+    case 'DOCK_INPAGE': {
+      const position = message.position === 'left' || message.position === 'bottom' ? message.position : 'right';
+      let targetTab = null;
+      const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (activeTab?.url && activeTab.url.includes('mail.google.com')) {
+        targetTab = activeTab;
+      } else {
+        const tabs = await chrome.tabs.query({ url: '*://mail.google.com/*' });
+        if (tabs.length > 0) {
+          targetTab = tabs[0];
+          await chrome.tabs.update(targetTab.id, { active: true });
+          if (targetTab.windowId) {
+            await chrome.windows.update(targetTab.windowId, { focused: true });
+          }
+        }
+      }
+
+      if (!targetTab) {
+        return { success: false, error: 'Please open Gmail (mail.google.com) to dock Midey in-page.' };
+      }
+
+      await chrome.scripting.executeScript({
+        target: { tabId: targetTab.id },
+        func: injectedInPageDockScript,
+        args: [position, chrome.runtime.getURL('popup.html?dock=inpage&pos=' + position)]
+      });
+
+      await chrome.storage.local.set({ dockMode: position });
+      return { success: true, tabId: targetTab.id };
+    }
+
+    case 'CLOSE_INPAGE_DOCK': {
+      await removeInPageDockFromAllTabs();
+      await chrome.storage.local.set({ dockMode: 'default' });
+      return { success: true };
+    }
+
+    case 'GET_DOCK_MODE': {
+      const { dockMode = 'default' } = await chrome.storage.local.get('dockMode');
+      return { success: true, dockMode };
     }
 
     case 'START_COORDINATE_PICKER': {
@@ -2811,6 +2882,229 @@ async function injectedCoordinateTestScript(coords) {
       clickPoint(coords.point2.x, coords.point2.y);
     }
   }
+}
+
+/**
+ * Remove any active in-page dock from all open Gmail tabs
+ */
+async function removeInPageDockFromAllTabs() {
+  try {
+    const tabs = await chrome.tabs.query({ url: '*://mail.google.com/*' });
+    for (const t of tabs) {
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId: t.id },
+          func: injectedRemoveInPageDockScript
+        });
+      } catch (_) {}
+    }
+  } catch (_) {}
+}
+
+/**
+ * Injected script: Remove in-page dock container
+ */
+function injectedRemoveInPageDockScript() {
+  const container = document.getElementById('midey-inpage-dock-container');
+  if (container) {
+    container.remove();
+  }
+}
+
+/**
+ * Injected script: Mounts and updates in-page dock container on Gmail tab
+ * Supports Left, Right, Bottom with draggable edge resizer and iframe embedding.
+ */
+function injectedInPageDockScript(position, iframeUrl) {
+  let container = document.getElementById('midey-inpage-dock-container');
+  const isNew = !container;
+
+  if (isNew) {
+    container = document.createElement('div');
+    container.id = 'midey-inpage-dock-container';
+    document.body.appendChild(container);
+  }
+
+  // Load saved dimensions if any
+  let savedDims = {};
+  try {
+    savedDims = JSON.parse(localStorage.getItem('midey_dock_dims') || '{}');
+  } catch (_) {}
+
+  const defaultWidth = savedDims.width || 440;
+  const defaultHeight = savedDims.height || 380;
+
+  const isLeft = position === 'left';
+  const isBottom = position === 'bottom';
+  const isRight = position === 'right';
+
+  let posCss = '';
+  if (isLeft) {
+    posCss = `
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: ${defaultWidth}px;
+      height: 100vh;
+      border-right: 1px solid rgba(255, 255, 255, 0.12);
+      box-shadow: 4px 0 24px rgba(0, 0, 0, 0.5);
+    `;
+  } else if (isBottom) {
+    posCss = `
+      left: 0;
+      right: 0;
+      bottom: 0;
+      width: 100vw;
+      height: ${defaultHeight}px;
+      border-top: 1px solid rgba(255, 255, 255, 0.12);
+      box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.5);
+    `;
+  } else {
+    posCss = `
+      right: 0;
+      top: 0;
+      bottom: 0;
+      width: ${defaultWidth}px;
+      height: 100vh;
+      border-left: 1px solid rgba(255, 255, 255, 0.12);
+      box-shadow: -4px 0 24px rgba(0, 0, 0, 0.5);
+    `;
+  }
+
+  container.style.cssText = `
+    position: fixed;
+    z-index: 2147483640;
+    background: #0f172a;
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+    overflow: hidden;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+    ${posCss}
+  `;
+
+  container.innerHTML = `
+    <div id="midey-dock-resizer" style="
+      position: absolute;
+      ${isLeft ? 'top: 0; right: -4px; width: 8px; height: 100%; cursor: col-resize;' : ''}
+      ${isRight ? 'top: 0; left: -4px; width: 8px; height: 100%; cursor: col-resize;' : ''}
+      ${isBottom ? 'top: -4px; left: 0; width: 100%; height: 8px; cursor: row-resize;' : ''}
+      z-index: 2147483645;
+      background: transparent;
+    " title="Drag to resize dock"></div>
+
+    <div id="midey-dock-bar" style="
+      height: 28px;
+      background: #1e293b;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 10px;
+      user-select: none;
+      box-sizing: border-box;
+    ">
+      <div style="display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; color: #f8fafc;">
+        <span style="display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; background: #6366f1; border-radius: 4px; font-size: 10px; color: #fff;">M</span>
+        <span>Midey Mailer</span>
+        <span style="font-size: 9.5px; padding: 1px 5px; border-radius: 3px; background: rgba(99, 102, 241, 0.2); color: #a5b4fc; font-weight: 600; text-transform: uppercase;">
+          Dock: ${position}
+        </span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 4px;">
+        <button id="midey-dock-popout-btn" style="background: none; border: none; color: #94a3b8; font-size: 11px; cursor: pointer; padding: 2px 5px; border-radius: 3px;" title="Pop out into separate window">
+          🗗
+        </button>
+        <button id="midey-dock-close-btn" style="background: none; border: none; color: #ef4444; font-size: 12px; font-weight: 800; cursor: pointer; padding: 2px 6px; border-radius: 3px;" title="Close Dock">
+          ✕
+        </button>
+      </div>
+    </div>
+
+    <iframe id="midey-dock-iframe" src="${iframeUrl}" style="
+      width: 100%;
+      height: calc(100% - 28px);
+      border: none;
+      background: transparent;
+    " allow="clipboard-read; clipboard-write"></iframe>
+  `;
+
+  const popoutBtn = container.querySelector('#midey-dock-popout-btn');
+  popoutBtn?.addEventListener('click', () => {
+    chrome.runtime.sendMessage({ action: 'DOCK_POPOUT' });
+  });
+
+  const closeBtn = container.querySelector('#midey-dock-close-btn');
+  closeBtn?.addEventListener('click', () => {
+    container.remove();
+    chrome.runtime.sendMessage({ action: 'CLOSE_INPAGE_DOCK' });
+  });
+
+  const resizer = container.querySelector('#midey-dock-resizer');
+  let isResizing = false;
+  let startX = 0;
+  let startY = 0;
+  let startW = 0;
+  let startH = 0;
+  let dragCover = null;
+
+  function onMouseDown(e) {
+    isResizing = true;
+    startX = e.clientX;
+    startY = e.clientY;
+    startW = container.offsetWidth;
+    startH = container.offsetHeight;
+
+    dragCover = document.createElement('div');
+    dragCover.style.cssText = `
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      z-index: 2147483647;
+      cursor: ${isBottom ? 'row-resize' : 'col-resize'};
+    `;
+    document.body.appendChild(dragCover);
+
+    window.addEventListener('mousemove', onMouseMove, true);
+    window.addEventListener('mouseup', onMouseUp, true);
+    e.preventDefault();
+  }
+
+  function onMouseMove(e) {
+    if (!isResizing) return;
+    if (isLeft) {
+      const newWidth = Math.max(320, Math.min(window.innerWidth - 80, startW + (e.clientX - startX)));
+      container.style.width = newWidth + 'px';
+      saveDims({ width: newWidth });
+    } else if (isRight) {
+      const newWidth = Math.max(320, Math.min(window.innerWidth - 80, startW - (e.clientX - startX)));
+      container.style.width = newWidth + 'px';
+      saveDims({ width: newWidth });
+    } else if (isBottom) {
+      const newHeight = Math.max(220, Math.min(window.innerHeight - 80, startH - (e.clientY - startY)));
+      container.style.height = newHeight + 'px';
+      saveDims({ height: newHeight });
+    }
+  }
+
+  function onMouseUp() {
+    isResizing = false;
+    if (dragCover) {
+      dragCover.remove();
+      dragCover = null;
+    }
+    window.removeEventListener('mousemove', onMouseMove, true);
+    window.removeEventListener('mouseup', onMouseUp, true);
+  }
+
+  function saveDims(update) {
+    try {
+      const curr = JSON.parse(localStorage.getItem('midey_dock_dims') || '{}');
+      localStorage.setItem('midey_dock_dims', JSON.stringify({ ...curr, ...update }));
+    } catch (_) {}
+  }
+
+  resizer?.addEventListener('mousedown', onMouseDown);
 }
 
 

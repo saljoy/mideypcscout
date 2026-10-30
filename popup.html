@@ -69,14 +69,43 @@
         <span id="themeLabel">Light</span>
       </button>
 
-      <!-- Side Panel Button -->
-      <button id="openSidePanelBtn" class="btn btn-secondary btn-xs" title="Open inside Chrome Side Panel">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <rect width="18" height="18" x="3" y="3" rx="2" ry="2" />
-          <line x1="15" x2="15" y1="3" y2="21" />
-        </svg>
-        Side Panel
-      </button>
+      <!-- DevTools-Style Dock Controller -->
+      <div class="dock-control-group" id="dockControlGroup" title="Dock Placement & View Style">
+        <button id="dockPopoutBtn" class="dock-btn" type="button" title="Undock into separate window (Pop out)">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="13" height="13" rx="2" />
+            <path d="M9 21h10a2 2 0 0 0 2-2V9" />
+            <path d="M12 8l4-4m0 0h-3m3 0v3" />
+          </svg>
+        </button>
+        <button id="dockLeftBtn" class="dock-btn" type="button" title="Dock to Left of Gmail tab">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="18" height="18" rx="2" />
+            <rect x="3" y="3" width="6" height="18" fill="currentColor" fill-opacity="0.4" />
+          </svg>
+        </button>
+        <button id="dockBottomBtn" class="dock-btn" type="button" title="Dock to Bottom of Gmail tab">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="18" height="18" rx="2" />
+            <rect x="3" y="15" width="18" height="6" fill="currentColor" fill-opacity="0.4" />
+          </svg>
+        </button>
+        <button id="dockRightBtn" class="dock-btn" type="button" title="Dock to Right of Gmail tab">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="18" height="18" rx="2" />
+            <rect x="15" y="3" width="6" height="18" fill="currentColor" fill-opacity="0.4" />
+          </svg>
+        </button>
+        <button id="dockSidePanelBtn" class="dock-btn" type="button" title="Open Chrome Native Side Panel">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="18" height="18" rx="2" />
+            <line x1="16" y1="3" x2="16" y2="21" />
+          </svg>
+        </button>
+        <button id="dockCloseBtn" class="dock-btn dock-btn-close" type="button" title="Close dock / window" style="display: none;">
+          ✕
+        </button>
+      </div>
     </div>
   </header>
 
