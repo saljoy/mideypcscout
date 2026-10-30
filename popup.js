@@ -3513,13 +3513,17 @@ function renderLeadsList() {
       const isSending = batch.some((l) => l.status === 'sending');
       const batchLeadIdsStr = batch.map((l) => l.id).join(',');
 
-      // Chips for first 4 recipient emails
+      // Chips for recipient emails: 1st is To, others are BCC
       const maxChips = 4;
       const chipEmails = batch.slice(0, maxChips);
       const remainingCount = batch.length - maxChips;
       const chipsHtml = chipEmails
-        .map((l) => `<span class="bcc-chip" title="${escapeHtml(l.email)}">${escapeHtml(l.email)}</span>`)
-        .join('') + (remainingCount > 0 ? `<span class="bcc-chip-more">+${remainingCount} more</span>` : '');
+        .map((l, cIdx) => `
+          <span class="bcc-chip ${cIdx === 0 ? 'bcc-chip-to' : ''}" title="${cIdx === 0 ? 'To (Primary): ' : 'BCC: '}${escapeHtml(l.email)}">
+            ${cIdx === 0 ? '<strong style="color: #a5b4fc;">To:</strong> ' : '<span style="color: var(--text-dim);">BCC:</span> '}${escapeHtml(l.email)}
+          </span>
+        `)
+        .join('') + (remainingCount > 0 ? `<span class="bcc-chip-more">+${remainingCount} more in BCC</span>` : '');
 
       if (isCompact) {
         htmlChunks.push(`
@@ -3554,7 +3558,7 @@ function renderLeadsList() {
             ${batch.map((lead, lIdx) => `
               <div class="bcc-lead-subrow status-${lead.status}" data-card-id="${lead.id}">
                 <span class="bcc-subrow-idx">#${lIdx + 1}</span>
-                <span class="bcc-subrow-email" title="${escapeHtml(lead.email)}">${escapeHtml(lead.email)}</span>
+                <span class="bcc-subrow-email" title="${escapeHtml(lead.email)}">${lIdx === 0 ? '<strong style="color: #a5b4fc;">[To]</strong> ' : ''}${escapeHtml(lead.email)}</span>
                 <span class="badge badge-${lead.status} compact-badge status-toggle-badge" data-id="${lead.id}" title="Click to toggle status" style="cursor: pointer;">${lead.status}</span>
                 <div class="bcc-subrow-actions">
                   <button class="btn btn-secondary btn-xs compose-btn" data-id="${lead.id}" title="Compose single lead">
@@ -3588,7 +3592,7 @@ function renderLeadsList() {
                 <strong>Subject:</strong> ${escapeHtml(batch[0].subject || '(Template subject rotation)')}
               </div>
               <div class="bcc-recipients-header">
-                <span class="bcc-label">BCC Recipients (${batch.length}):</span>
+                <span class="bcc-label">To: <strong style="color: var(--text-main);">${escapeHtml(batch[0].email)}</strong> ${batch.length > 1 ? `• BCC (${batch.length - 1} leads):` : ''}</span>
               </div>
               <div class="bcc-chips-container">
                 ${chipsHtml}
@@ -3884,19 +3888,23 @@ async function handleComposeBccBatch(leadIds) {
       leadIds: leadIds
     });
     if (res && res.success) {
-      showBanner(statusBanner, `Draft staged in Gmail with ${leadIds.length} BCC recipients! Review and click Send.`, 'success');
+      const bccCount = Math.max(0, leadIds.length - 1);
+      showBanner(statusBanner, `Draft staged in Gmail! 1 in To${bccCount > 0 ? `, ${bccCount} in BCC` : ''}. Review and click Send.`, 'success');
     } else {
       const batchLeads = currentLeads.filter((l) => leadIds.includes(l.id));
-      const bccStr = batchLeads.map((l) => (l.email || '').trim()).filter(Boolean).join(',');
+      const allEmails = batchLeads.map((l) => (l.email || '').trim()).filter(Boolean);
+      const toEmail = allEmails[0] || '';
+      const bccList = allEmails.slice(1);
       const subject = batchLeads[0]?.subject || '';
       const body = batchLeads[0]?.body || '';
       const composeUrl =
         'https://mail.google.com/mail/?view=cm&fs=1' +
-        `&bcc=${encodeURIComponent(bccStr)}` +
+        (toEmail ? `&to=${encodeURIComponent(toEmail)}` : '') +
+        (bccList.length > 0 ? `&bcc=${encodeURIComponent(bccList.join(','))}` : '') +
         `&su=${encodeURIComponent(subject)}` +
         `&body=${encodeURIComponent(body)}`;
       chrome.tabs.create({ url: composeUrl, active: true });
-      showBanner(statusBanner, `Opened Gmail compose tab with ${leadIds.length} BCC recipients.`, 'success');
+      showBanner(statusBanner, `Opened Gmail compose tab with To: ${toEmail}${bccList.length ? ` and ${bccList.length} in BCC` : ''}.`, 'success');
     }
   } catch (err) {
     console.error('Error composing BCC batch:', err);

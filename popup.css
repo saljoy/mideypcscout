@@ -1886,6 +1886,12 @@ body {
   white-space: nowrap;
 }
 
+.bcc-chip-to {
+  background: rgba(99, 102, 241, 0.14);
+  border-color: rgba(99, 102, 241, 0.45);
+  color: #c7d2fe;
+}
+
 .bcc-chip-more {
   font-size: 9.5px;
   font-weight: 600;

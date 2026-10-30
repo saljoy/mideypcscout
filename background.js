@@ -217,9 +217,11 @@ async function handleRuntimeMessage(message, sender) {
         }
       }
 
-      const bccEmails = batchLeads.map((l) => (l.email || '').trim()).filter(Boolean);
+      const allEmails = batchLeads.map((l) => (l.email || '').trim()).filter(Boolean);
+      const toEmail = allEmails[0] || null;
+      const bccEmails = allEmails.slice(1);
       return await handleInPageCompose({
-        email: null,
+        email: toEmail,
         bccEmails: bccEmails,
         subject: resolvedSubject,
         body: resolvedBody
@@ -1059,22 +1061,24 @@ async function executeAutoSendForBccBatch(batch, settings, storageKey = 'leads')
   );
   await chrome.storage.local.set({ [storageKey]: sendingLeads });
 
-  const bccEmails = batch.map((l) => (l.email || '').trim()).filter(Boolean);
+  const allEmails = batch.map((l) => (l.email || '').trim()).filter(Boolean);
+  const toEmail = allEmails[0] || null;
+  const bccEmails = allEmails.slice(1);
   const subject = batch[0].subject || '';
   const rawBody = batch[0].body || '';
   const finalBody = await getLeadBodyWithSignature(rawBody);
 
   if (settings.inPageAutoSend) {
-    return await executeInPageAutoSendBcc(batch, bccEmails, subject, finalBody, settings, storageKey);
+    return await executeInPageAutoSendBcc(batch, toEmail, bccEmails, subject, finalBody, settings, storageKey);
   } else {
-    return await executeStandaloneAutoSendBcc(batch, bccEmails, subject, finalBody, settings, storageKey);
+    return await executeStandaloneAutoSendBcc(batch, toEmail, bccEmails, subject, finalBody, settings, storageKey);
   }
 }
 
 /**
  * In-Page Auto-Send for BCC batch
  */
-async function executeInPageAutoSendBcc(batch, bccEmails, subject, finalBody, settings, storageKey = 'leads') {
+async function executeInPageAutoSendBcc(batch, toEmail, bccEmails, subject, finalBody, settings, storageKey = 'leads') {
   const batchIdSet = new Set(batch.map((l) => l.id));
 
   try {
@@ -1120,7 +1124,7 @@ async function executeInPageAutoSendBcc(batch, bccEmails, subject, finalBody, se
       func: injectedInPageComposeScript,
       args: [
         {
-          email: null,
+          email: toEmail,
           bccEmails: bccEmails,
           subject: subject,
           body: finalBody,
@@ -1179,15 +1183,16 @@ async function executeInPageAutoSendBcc(batch, bccEmails, subject, finalBody, se
 /**
  * Standalone compose tab Auto-Send for BCC batch
  */
-async function executeStandaloneAutoSendBcc(batch, bccEmails, subject, finalBody, settings, storageKey = 'leads') {
+async function executeStandaloneAutoSendBcc(batch, toEmail, bccEmails, subject, finalBody, settings, storageKey = 'leads') {
   let tab = null;
   const autoClose = settings.autoCloseTab !== false;
   const batchIdSet = new Set(batch.map((l) => l.id));
 
   try {
-    const composeUrl =
+    let composeUrl =
       'https://mail.google.com/mail/?view=cm&fs=1' +
-      `&bcc=${encodeURIComponent(bccEmails.join(','))}` +
+      (toEmail ? `&to=${encodeURIComponent(toEmail)}` : '') +
+      (bccEmails.length > 0 ? `&bcc=${encodeURIComponent(bccEmails.join(','))}` : '') +
       `&su=${encodeURIComponent(subject || '')}` +
       `&body=${encodeURIComponent(finalBody || '')}`;
 
@@ -1202,7 +1207,7 @@ async function executeStandaloneAutoSendBcc(batch, bccEmails, subject, finalBody
       func: injectedGmailSendScript,
       args: [
         {
-          expectedEmail: null,
+          expectedEmail: toEmail,
           expectedBccEmails: bccEmails,
           expectedSubject: subject,
           expectedBody: finalBody,
@@ -1510,12 +1515,46 @@ async function injectedGmailSendScript(params) {
 
   // 4. Verify/populate recipient, subject, and body if Gmail UI didn't auto-populate from URL
   try {
+    // Helper to type/commit an email address into a Gmail PeopleKit recipient input
+    async function fillEmailIntoInput(inputEl, emailAddress) {
+      if (!inputEl || !emailAddress) return;
+      inputEl.focus();
+      await localSleep(30);
+
+      let inserted = false;
+      try {
+        inputEl.value = '';
+        inserted = document.execCommand('insertText', false, emailAddress);
+      } catch (_) {
+        inserted = false;
+      }
+
+      if (!inserted || inputEl.value !== emailAddress) {
+        inputEl.value = emailAddress;
+        inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+        inputEl.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+
+      await localSleep(40);
+
+      inputEl.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+      inputEl.dispatchEvent(new KeyboardEvent('keypress', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+      inputEl.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+      await localSleep(40);
+
+      if (inputEl.value) {
+        inputEl.dispatchEvent(new KeyboardEvent('keydown', { key: ',', code: 'Comma', keyCode: 188, which: 188, bubbles: true }));
+        inputEl.dispatchEvent(new KeyboardEvent('keyup', { key: ',', code: 'Comma', keyCode: 188, which: 188, bubbles: true }));
+        await localSleep(30);
+      }
+    }
+
     // Check 'To' recipient field if expectedEmail was provided
     if (expectedEmail) {
       const recipientInput = document.querySelector(
-        'input[aria-label*="To"], input.agP.aFw, div[name="to"] input, input[peoplekit-id]'
+        'input[aria-label*="To" i], input.agP.aFw, div[name="to"] input, input[peoplekit-id]'
       );
-      const toContainer = document.querySelector('div[name="to"], div[aria-label*="To"]');
+      const toContainer = document.querySelector('div[name="to"], div[aria-label*="To" i]');
       const hasRecipient = toContainer
         ? (toContainer.innerText || '').includes('@')
         : recipientInput
@@ -1523,59 +1562,94 @@ async function injectedGmailSendScript(params) {
         : false;
 
       if (!hasRecipient && recipientInput) {
-        recipientInput.focus();
-        recipientInput.value = expectedEmail;
-        recipientInput.dispatchEvent(new Event('input', { bubbles: true }));
-        recipientInput.dispatchEvent(
-          new KeyboardEvent('keydown', {
-            key: 'Enter',
-            code: 'Enter',
-            keyCode: 13,
-            which: 13,
-            bubbles: true
-          })
-        );
+        await fillEmailIntoInput(recipientInput, expectedEmail);
         await localSleep(50);
       }
     }
 
     // Check 'Bcc' recipient field if expectedBccEmails were provided
     if (Array.isArray(expectedBccEmails) && expectedBccEmails.length > 0) {
-      const bccContainer = document.querySelector('div[name="bcc"], div[aria-label*="Bcc"]');
-      const bccInput = document.querySelector(
-        'input[aria-label*="Bcc"], input.agP.aFw[aria-label*="Bcc"], div[name="bcc"] input, input[name="bcc"]'
-      );
+      function findBccInputEl() {
+        const direct = document.querySelector(
+          'input[name="bcc"], input[aria-label*="bcc" i], input[aria-label*="cco" i], input[aria-label*="cci" i], div[name="bcc"] input, tr[name="bcc"] input'
+        );
+        if (direct) return direct;
+
+        const containers = document.querySelectorAll(
+          'div[name="bcc"], tr[name="bcc"], div[aria-label*="bcc" i], tr[aria-label*="bcc" i], div[aria-label*="cco" i], div[aria-label*="cci" i]'
+        );
+        for (const c of containers) {
+          const inp = c.querySelector('input.agP.aFw, input[peoplekit-id], input[role="combobox"], input');
+          if (inp) return inp;
+        }
+
+        const inputs = document.querySelectorAll('input.agP.aFw, input[peoplekit-id]');
+        if (inputs.length >= 2) {
+          for (let i = inputs.length - 1; i >= 0; i--) {
+            const row = inputs[i].closest('tr, div[name], div[role="row"], div.aoD');
+            const rowText = (row?.innerText || row?.getAttribute('aria-label') || '').toLowerCase();
+            if (rowText.includes('bcc') || rowText.includes('cco') || rowText.includes('cci')) {
+              return inputs[i];
+            }
+          }
+        }
+        return null;
+      }
+
+      const bccContainer = document.querySelector('div[name="bcc"], div[aria-label*="bcc" i]');
+      let bccInputEl = findBccInputEl();
       const hasBcc = bccContainer
         ? (bccContainer.innerText || '').includes('@')
-        : bccInput
-        ? (bccInput.value || '').includes('@')
+        : bccInputEl
+        ? (bccInputEl.value || '').includes('@')
         : false;
 
       if (!hasBcc) {
-        let bccInputEl = bccInput;
         if (!bccInputEl) {
-          const bccTrigger = document.querySelector(
-            'span[aria-label*="Bcc"], span[data-tooltip*="Bcc"], span[role="link"][aria-label*="Bcc"], span.aB.gQ.pE'
-          );
-          if (bccTrigger) {
-            bccTrigger.click();
-            await localSleep(80);
-            bccInputEl = document.querySelector(
-              'input[aria-label*="Bcc"], input.agP.aFw[aria-label*="Bcc"], div[name="bcc"] input, input[name="bcc"]'
+          const toTarget = document.querySelector('input[peoplekit-id], input.agP.aFw, div[name="to"]') || document.body;
+          toTarget.focus?.();
+          await localSleep(50);
+
+          const keyOpts = { key: 'B', code: 'KeyB', keyCode: 66, which: 66, ctrlKey: true, shiftKey: true, bubbles: true };
+          toTarget.dispatchEvent(new KeyboardEvent('keydown', keyOpts));
+          toTarget.dispatchEvent(new KeyboardEvent('keypress', keyOpts));
+          toTarget.dispatchEvent(new KeyboardEvent('keyup', keyOpts));
+          await localSleep(100);
+
+          bccInputEl = findBccInputEl();
+
+          if (!bccInputEl) {
+            const bccCandidates = document.querySelectorAll(
+              'span[role="link"], span[data-tooltip], span[aria-label], div[role="button"], span.aB.gQ.pE, span.aB'
             );
+            for (const el of bccCandidates) {
+              const tip = (el.getAttribute('data-tooltip') || '').toLowerCase();
+              const aria = (el.getAttribute('aria-label') || '').toLowerCase();
+              const text = (el.textContent || '').replace(/[\u200B-\u200D\uFEFF\u202A-\u202E]/g, '').trim().toLowerCase();
+              if (
+                tip.includes('bcc') || tip.includes('cco') || tip.includes('cci') ||
+                aria.includes('bcc') || aria.includes('cco') || aria.includes('cci') ||
+                text === 'bcc' || text === 'cco' || text === 'cci'
+              ) {
+                el.click();
+                await localSleep(150);
+                break;
+              }
+            }
+          }
+
+          const waitBccStart = Date.now();
+          while (!bccInputEl && Date.now() - waitBccStart < 2000) {
+            await localSleep(60);
+            bccInputEl = findBccInputEl();
           }
         }
+
         if (bccInputEl) {
           for (const bccAddr of expectedBccEmails) {
             if (!bccAddr) continue;
-            bccInputEl.focus();
-            bccInputEl.value = bccAddr;
-            bccInputEl.dispatchEvent(new Event('input', { bubbles: true }));
-            bccInputEl.dispatchEvent(new Event('change', { bubbles: true }));
-            await localSleep(25);
-            bccInputEl.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
-            bccInputEl.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
-            await localSleep(40);
+            await fillEmailIntoInput(bccInputEl, bccAddr);
+            await localSleep(35);
           }
         }
       }
@@ -1957,111 +2031,149 @@ async function injectedInPageComposeScript(leadData) {
   composeBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   await localSleep(80);
 
-  // 2. Step 1: Insert Recipient Email
-  try {
-    // Click the To label or field if it's currently collapsed/unfocused
-    const toClickArea = composeBox.querySelector(
-      'div[name="to"], div[aria-label*="To"], span[name="to"], tr.fA'
-    );
-    if (toClickArea) {
-      dispatchRealisticClick(toClickArea);
-      await localSleep(40);
+  // Helper to type/commit an email address into a Gmail PeopleKit recipient input
+  async function fillEmailIntoInput(inputEl, emailAddress) {
+    if (!inputEl || !emailAddress) return;
+    inputEl.focus();
+    await localSleep(30);
+
+    let inserted = false;
+    try {
+      inputEl.value = '';
+      inserted = document.execCommand('insertText', false, emailAddress);
+    } catch (_) {
+      inserted = false;
     }
 
-    // Find the input element for "To"
-    const recipientInput = composeBox.querySelector(
-      'input[peoplekit-id], input.agP.aFw, div[name="to"] input, input[aria-label*="To"], input[role="combobox"]'
-    ) || document.querySelector('div[name="to"] input, input.agP.aFw');
+    if (!inserted || inputEl.value !== emailAddress) {
+      inputEl.value = emailAddress;
+      inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+      inputEl.dispatchEvent(new Event('change', { bubbles: true }));
+    }
 
-    if (recipientInput && email) {
-      recipientInput.focus();
-      recipientInput.value = email;
-      recipientInput.dispatchEvent(new Event('input', { bubbles: true }));
-      recipientInput.dispatchEvent(new Event('change', { bubbles: true }));
-      await localSleep(40);
+    await localSleep(40);
 
-      // Press Enter to convert the email address into a recipient chip
-      recipientInput.dispatchEvent(
-        new KeyboardEvent('keydown', {
-          key: 'Enter',
-          code: 'Enter',
-          keyCode: 13,
-          which: 13,
-          bubbles: true
-        })
+    inputEl.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+    inputEl.dispatchEvent(new KeyboardEvent('keypress', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+    inputEl.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+    await localSleep(40);
+
+    if (inputEl.value) {
+      inputEl.dispatchEvent(new KeyboardEvent('keydown', { key: ',', code: 'Comma', keyCode: 188, which: 188, bubbles: true }));
+      inputEl.dispatchEvent(new KeyboardEvent('keyup', { key: ',', code: 'Comma', keyCode: 188, which: 188, bubbles: true }));
+      await localSleep(30);
+    }
+  }
+
+  // 2. Step 1: Insert "To" Recipient Email
+  try {
+    if (email) {
+      const toClickArea = composeBox.querySelector(
+        'div[name="to"], div[aria-label*="To" i], span[name="to"], tr.fA, div.aoD.hl'
       );
-      recipientInput.dispatchEvent(
-        new KeyboardEvent('keyup', {
-          key: 'Enter',
-          code: 'Enter',
-          keyCode: 13,
-          which: 13,
-          bubbles: true
-        })
-      );
-      await localSleep(60);
+      if (toClickArea) {
+        dispatchRealisticClick(toClickArea);
+        await localSleep(60);
+      }
+
+      const recipientInput = composeBox.querySelector(
+        'input[peoplekit-id], input.agP.aFw, div[name="to"] input, input[aria-label*="To" i], input[role="combobox"]'
+      ) || document.querySelector('div[name="to"] input, input.agP.aFw');
+
+      if (recipientInput) {
+        await fillEmailIntoInput(recipientInput, email);
+      }
     }
   } catch (err) {
-    console.warn('Error filling recipient:', err);
+    console.warn('Error filling "To" recipient:', err);
   }
 
   // 2b. Step 1b: Insert BCC Recipients if present
   try {
     if (Array.isArray(bccEmails) && bccEmails.length > 0) {
-      let bccInput = composeBox.querySelector(
-        'input[name="bcc"], div[name="bcc"] input, input[aria-label*="Bcc"]'
-      );
+      function findBccInputEl() {
+        const direct = composeBox.querySelector(
+          'input[name="bcc"], input[aria-label*="bcc" i], input[aria-label*="cco" i], input[aria-label*="cci" i], div[name="bcc"] input, tr[name="bcc"] input'
+        );
+        if (direct) return direct;
+
+        const containers = composeBox.querySelectorAll(
+          'div[name="bcc"], tr[name="bcc"], div[aria-label*="bcc" i], tr[aria-label*="bcc" i], div[aria-label*="cco" i], div[aria-label*="cci" i]'
+        );
+        for (const c of containers) {
+          const inp = c.querySelector('input.agP.aFw, input[peoplekit-id], input[role="combobox"], input');
+          if (inp) return inp;
+        }
+
+        const inputs = composeBox.querySelectorAll('input.agP.aFw, input[peoplekit-id]');
+        if (inputs.length >= 2) {
+          for (let i = inputs.length - 1; i >= 0; i--) {
+            const row = inputs[i].closest('tr, div[name], div[role="row"], div.aoD');
+            const rowText = (row?.innerText || row?.getAttribute('aria-label') || '').toLowerCase();
+            if (rowText.includes('bcc') || rowText.includes('cco') || rowText.includes('cci')) {
+              return inputs[i];
+            }
+          }
+        }
+        return null;
+      }
+
+      let bccInput = findBccInputEl();
 
       if (!bccInput) {
-        const bccTrigger = composeBox.querySelector(
-          'span[aria-label*="Bcc"], span[data-tooltip*="Bcc"], span[role="link"][aria-label*="Bcc"], span.aB.gQ.pE'
-        );
-        if (bccTrigger) {
-          dispatchRealisticClick(bccTrigger);
-          await localSleep(80);
-        } else {
-          const links = composeBox.querySelectorAll('span[role="link"], span, div[role="button"]');
+        const toFocusTarget = composeBox.querySelector('input[peoplekit-id], input.agP.aFw, div[name="to"]') || composeBox;
+        toFocusTarget.focus?.();
+        await localSleep(50);
+
+        const keyOpts = { key: 'B', code: 'KeyB', keyCode: 66, which: 66, ctrlKey: true, shiftKey: true, bubbles: true };
+        toFocusTarget.dispatchEvent(new KeyboardEvent('keydown', keyOpts));
+        toFocusTarget.dispatchEvent(new KeyboardEvent('keypress', keyOpts));
+        toFocusTarget.dispatchEvent(new KeyboardEvent('keyup', keyOpts));
+        await localSleep(100);
+
+        bccInput = findBccInputEl();
+
+        if (!bccInput) {
+          const links = composeBox.querySelectorAll(
+            'span[role="link"], span[data-tooltip], span[aria-label], div[role="button"], span.aB.gQ.pE, span.aB'
+          );
           for (const l of links) {
-            if ((l.textContent || '').trim().toLowerCase() === 'bcc') {
+            const tip = (l.getAttribute('data-tooltip') || '').toLowerCase();
+            const aria = (l.getAttribute('aria-label') || '').toLowerCase();
+            const text = (l.textContent || '').replace(/[\u200B-\u200D\uFEFF\u202A-\u202E]/g, '').trim().toLowerCase();
+            if (
+              tip.includes('bcc') || tip.includes('cco') || tip.includes('cci') ||
+              aria.includes('bcc') || aria.includes('cco') || aria.includes('cci') ||
+              text === 'bcc' || text === 'cco' || text === 'cci'
+            ) {
               dispatchRealisticClick(l);
-              await localSleep(80);
+              await localSleep(150);
               break;
             }
           }
         }
-        bccInput = composeBox.querySelector(
-          'input[name="bcc"], div[name="bcc"] input, input[aria-label*="Bcc"]'
+
+        const startWaitBcc = Date.now();
+        while (!bccInput && Date.now() - startWaitBcc < 2000) {
+          await localSleep(60);
+          bccInput = findBccInputEl();
+        }
+      }
+
+      if (!bccInput) {
+        bccInput = document.querySelector(
+          'input[aria-label*="bcc" i], input[aria-label*="cco" i], input[aria-label*="cci" i], div[name="bcc"] input, tr[name="bcc"] input'
         );
       }
 
       if (bccInput) {
         for (const addr of bccEmails) {
           if (!addr) continue;
-          bccInput.focus();
-          bccInput.value = addr;
-          bccInput.dispatchEvent(new Event('input', { bubbles: true }));
-          bccInput.dispatchEvent(new Event('change', { bubbles: true }));
-          await localSleep(25);
-          bccInput.dispatchEvent(
-            new KeyboardEvent('keydown', {
-              key: 'Enter',
-              code: 'Enter',
-              keyCode: 13,
-              which: 13,
-              bubbles: true
-            })
-          );
-          bccInput.dispatchEvent(
-            new KeyboardEvent('keyup', {
-              key: 'Enter',
-              code: 'Enter',
-              keyCode: 13,
-              which: 13,
-              bubbles: true
-            })
-          );
-          await localSleep(40);
+          await fillEmailIntoInput(bccInput, addr);
+          await localSleep(35);
         }
+      } else {
+        console.warn('Could not locate BCC input in Gmail compose.');
       }
     }
   } catch (err) {
