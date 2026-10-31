@@ -35,6 +35,7 @@ let currentTheme = 'dark';
 let currentFilter = '';
 let lastFocusedTemplateInput = null;
 let leadsDisplayLimit = 150;
+let bccBatchesDisplayLimit = 50;
 let localCountdownInterval = null;
 let currentSpamCheckLeads = [];
 let currentAntiSleepState = { isActive: false, reason: null, durationMinutes: null, expiresAt: null };
@@ -190,6 +191,7 @@ const delaySummaryText = document.getElementById('delaySummaryText');
 
 // DOM Elements - Content Sync
 const syncContentToLeadsBtn = document.getElementById('syncContentToLeadsBtn');
+const syncFilteredOnlyBtn = document.getElementById('syncFilteredOnlyBtn');
 const contentSyncBanner = document.getElementById('contentSyncBanner');
 
 // DOM Elements - Excel Filter & Prioritizer
@@ -1057,7 +1059,10 @@ function setupEventListeners() {
 
   // Sync Content to Loaded Leads
   if (syncContentToLeadsBtn) {
-    syncContentToLeadsBtn.addEventListener('click', handleSyncContentToLeads);
+    syncContentToLeadsBtn.addEventListener('click', () => handleSyncContentToLeads({ filteredOnly: false }));
+  }
+  if (syncFilteredOnlyBtn) {
+    syncFilteredOnlyBtn.addEventListener('click', () => handleSyncContentToLeads({ filteredOnly: true }));
   }
 
   // Excel-Style Filter & Prioritizer Controls
@@ -1529,6 +1534,12 @@ function setupEventListeners() {
     const showAllBtn = e.target.closest('#showAllLeadsBtn');
     if (showAllBtn) {
       leadsDisplayLimit = Infinity;
+      renderLeadsList();
+      return;
+    }
+    const showAllBccBtn = e.target.closest('#showAllBccBatchesBtn');
+    if (showAllBccBtn) {
+      bccBatchesDisplayLimit = Infinity;
       renderLeadsList();
       return;
     }
@@ -2567,9 +2578,11 @@ function updateDiscoveredCsvTagsFromLeads() {
   tagSet.add('email');
   tagSet.add('domain');
 
-  currentLeads.forEach((lead) => {
+  const sampleLimit = Math.min(currentLeads.length, 50);
+  for (let sIdx = 0; sIdx < sampleLimit; sIdx++) {
+    const lead = currentLeads[sIdx];
     if (lead && lead.rowObj) {
-      Object.keys(lead.rowObj).forEach((k) => {
+      for (const k in lead.rowObj) {
         const lower = k.toLowerCase().trim();
         if (
           lower &&
@@ -2583,9 +2596,9 @@ function updateDiscoveredCsvTagsFromLeads() {
         ) {
           tagSet.add(lower);
         }
-      });
+      }
     }
-  });
+  }
 
   const tags = Array.from(tagSet);
   if (tags.length > 0 && currentLeads.length > 0) {
@@ -3770,7 +3783,8 @@ function renderLeadsList() {
     const htmlChunks = [];
 
     // Render compiled BCC Batches
-    for (let bIdx = 0; bIdx < batches.length; bIdx++) {
+    const totalBatchesToShow = Math.min(batches.length, bccBatchesDisplayLimit);
+    for (let bIdx = 0; bIdx < totalBatchesToShow; bIdx++) {
       const batch = batches[bIdx];
       const isAnyPriority = batch.some((l) => l.isPrioritized);
       const isExpanded = expandedBccBatches.has(bIdx);
@@ -3911,6 +3925,15 @@ function renderLeadsList() {
           </div>
         `);
       }
+    }
+    if (batches.length > totalBatchesToShow) {
+      htmlChunks.push(`
+        <div style="text-align: center; padding: 10px;">
+          <button id="showAllBccBatchesBtn" class="btn btn-secondary btn-xs" style="width: 100%;">
+            Showing first ${totalBatchesToShow} of ${batches.length} BCC batches (${pendingLeads.length} leads). Click to show all.
+          </button>
+        </div>
+      `);
     }
 
     // Render otherLeads (sent or error) below compiled batches
@@ -4114,6 +4137,37 @@ async function handleToggleLeadStatus(leadId) {
  * Handle Manual Compose: in-page Gmail automation
  */
 async function handleManualCompose(lead) {
+  if (!lead) return;
+
+  // Smart Fallback: ensure subject and body are never empty if active templates exist
+  if (!lead.subject?.trim() || !lead.body?.trim()) {
+    const isMulti = Boolean(currentSettings?.enableMultiContent);
+    const subjTpl = isMulti
+      ? (currentSettings.subjectTemplates?.find((s) => s && s.trim()) || csvSubjectTemplate?.value || '')
+      : (csvSubjectTemplate?.value || '');
+    const bodyTpl = isMulti
+      ? (currentSettings.bodyTemplates?.find((b) => b && b.trim()) || csvBodyTemplate?.value || '')
+      : (csvBodyTemplate?.value || '');
+
+    let resolvedSubj = lead.subject || '';
+    let resolvedBody = lead.body || '';
+
+    if (!resolvedSubj.trim() && subjTpl.trim()) {
+      resolvedSubj = fastRenderTemplate(subjTpl, lead);
+    }
+    if (!resolvedBody.trim() && bodyTpl.trim()) {
+      resolvedBody = fastRenderTemplate(bodyTpl, lead);
+    }
+
+    if (resolvedSubj !== lead.subject || resolvedBody !== lead.body) {
+      lead = { ...lead, subject: resolvedSubj, body: resolvedBody };
+      const idx = currentLeads.findIndex((l) => l.id === lead.id);
+      if (idx !== -1) {
+        currentLeads[idx] = { ...currentLeads[idx], subject: resolvedSubj, body: resolvedBody };
+      }
+    }
+  }
+
   const banner = lead.isSpamCheck ? spamCheckBanner : statusBanner;
   showBanner(banner, `Connecting to Gmail to compose for ${lead.email}...`, 'success');
 
@@ -4559,6 +4613,44 @@ function escapeHtml(str) {
  */
 
 /**
+ * Fast direct property lookup from lead/rowObj without cloning objects
+ */
+function getLeadFieldValue(lead, key) {
+  if (!lead) return '';
+  const lower = key.toLowerCase();
+  if (lower === 'email') return lead.email || '';
+  if (lower === 'domain') return (lead.email?.split('@')[1] || '').toLowerCase();
+  if (lower === 'subject') return lead.subject || '';
+  if (lower === 'body') return lead.body || '';
+  if (lower === 'status') return lead.status || '';
+
+  if (lead.rowObj) {
+    if (lead.rowObj[lower] !== undefined && lead.rowObj[lower] !== null) {
+      return String(lead.rowObj[lower]);
+    }
+    if (lead.rowObj[key] !== undefined && lead.rowObj[key] !== null) {
+      return String(lead.rowObj[key]);
+    }
+  }
+  if (lead[key] !== undefined && lead[key] !== null) {
+    return String(lead[key]);
+  }
+  return '';
+}
+
+/**
+ * Fast template tag replacement avoiding object creation
+ */
+function fastRenderTemplate(template, lead) {
+  if (!template) return '';
+  if (!template.includes('{')) return template;
+  return template.replace(/\{([\w-]+)\}/gi, (match, tag) => {
+    const val = getLeadFieldValue(lead, tag);
+    return val !== '' ? val : match;
+  });
+}
+
+/**
  * Safely extract a normalized key-value row map from a lead
  */
 function getLeadRowObj(lead) {
@@ -4575,10 +4667,16 @@ function getLeadRowObj(lead) {
 }
 
 /**
- * Sync Content: Re-render Subject and Body on all pending leads in queue
+ * Sync Content: Re-render Subject and Body on pending leads in queue
+ * Supports syncing all pending leads or filtered pending leads only with real-time feedback & chunking
  */
-async function handleSyncContentToLeads() {
+async function handleSyncContentToLeads(options = {}) {
+  const filteredOnly = Boolean(options?.filteredOnly);
   hideBanner(contentSyncBanner);
+
+  const activeBtn = filteredOnly ? syncFilteredOnlyBtn : syncContentToLeadsBtn;
+  const originalBtnHtml = activeBtn ? activeBtn.innerHTML : '';
+
   const isMulti = Boolean(currentSettings?.enableMultiContent);
   const subjTemplate = csvSubjectTemplate ? csvSubjectTemplate.value : '';
   const bodyTemplate = csvBodyTemplate ? csvBodyTemplate.value : '';
@@ -4590,8 +4688,8 @@ async function handleSyncContentToLeads() {
     ? (currentSettings.bodyTemplates || []).filter((b) => b && b.trim())
     : [];
 
-  if (!isMulti && !subjTemplate && !bodyTemplate) {
-    showBanner(contentSyncBanner, 'Subject and Body templates are both empty.', 'error');
+  if (!isMulti && !subjTemplate.trim() && !bodyTemplate.trim()) {
+    showBanner(contentSyncBanner, 'Subject and Body templates are both empty. Please enter content to sync.', 'error');
     return;
   }
   if (isMulti && subjects.length === 0 && bodies.length === 0) {
@@ -4599,101 +4697,201 @@ async function handleSyncContentToLeads() {
     return;
   }
 
-  const { leads = [] } = await chrome.storage.local.get('leads');
-  if (leads.length === 0) {
-    showBanner(contentSyncBanner, 'No leads loaded in queue to update.', 'error');
-    return;
+  // Set immediate loading state on button and banner
+  if (activeBtn) {
+    activeBtn.disabled = true;
+    activeBtn.innerHTML = `
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="spin-icon">
+        <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+      </svg>
+      <span>Syncing leads...</span>
+    `;
   }
+  showBanner(contentSyncBanner, '🔄 Syncing updated content to leads in queue, please wait...', 'info');
 
-  let updatedCount = 0;
-  let pendingIdx = 0;
-  const updatedLeads = leads.map((lead) => {
-    // Keep already sent leads untouched as immutable history
-    if (lead.status === 'sent') return lead;
+  // Yield to UI thread to guarantee repaint of spinner & banner
+  await new Promise((resolve) => setTimeout(resolve, 25));
 
-    const rowObj = getLeadRowObj(lead);
-    let newSubject = '';
-    let newBody = '';
+  try {
+    const startTime = performance.now();
+    const { leads = [] } = await chrome.storage.local.get('leads');
 
-    if (isMulti) {
-      const rotated = getRotatedContentForIndex(pendingIdx, currentSettings);
-      newSubject = rotated.subject.trim() ? replaceTemplateTags(rotated.subject, rowObj) : (lead.subject || '');
-      newBody = rotated.body.trim() ? replaceTemplateTags(rotated.body, rowObj) : (lead.body || '');
-      pendingIdx++;
-    } else {
-      newSubject = subjTemplate.trim() ? replaceTemplateTags(subjTemplate, rowObj) : (lead.subject || '');
-      newBody = bodyTemplate.trim() ? replaceTemplateTags(bodyTemplate, rowObj) : (lead.body || '');
+    if (leads.length === 0) {
+      showBanner(contentSyncBanner, 'No leads loaded in queue to update.', 'error');
+      if (activeBtn) {
+        activeBtn.disabled = false;
+        activeBtn.innerHTML = originalBtnHtml;
+      }
+      return;
     }
 
-    updatedCount++;
-    return {
-      ...lead,
-      subject: newSubject,
-      body: newBody,
-      errorMessage: null
+    const hasFilter = (isFilterQueueViewActive && filterRules.length > 0) || Boolean(currentFilter);
+    const filterFn = (lead) => {
+      if (currentFilter) {
+        const em = (lead.email || '').toLowerCase().includes(currentFilter);
+        const su = (lead.subject || '').toLowerCase().includes(currentFilter);
+        if (!em && !su) return false;
+      }
+      if (isFilterQueueViewActive && filterRules.length > 0) {
+        return evaluateLeadMatch(lead, filterRules, filterMatchMode);
+      }
+      return true;
     };
-  });
 
-  // Auto-save templates and updated leads
-  currentLeads = updatedLeads;
-  await chrome.storage.local.set({
-    leads: updatedLeads,
-    csvTemplate: { subject: subjTemplate, body: bodyTemplate },
-    settings: currentSettings
-  });
+    let updatedCount = 0;
+    let filteredUpdatedCount = 0;
+    let pendingIdx = 0;
 
-  renderLeadsList();
+    const totalLeads = leads.length;
+    const updatedLeads = new Array(totalLeads);
 
-  let detailStr = '';
-  if (isMulti) {
-    const targetLabel =
-      currentSettings.contentRotationTarget === 'both'
-        ? 'Subject & Body'
-        : currentSettings.contentRotationTarget === 'subject'
-        ? 'Subject only'
-        : 'Body only';
-    const modeLabel = currentSettings.contentRotationMode === 'random' ? 'Random' : 'Sequential';
-    detailStr = ` with multi-content rotation (${targetLabel}, ${modeLabel})`;
+    // Process leads in chunked batches so large sets (e.g. 15,000 leads) never hang the browser
+    const CHUNK_SIZE = 3000;
+    for (let chunkStart = 0; chunkStart < totalLeads; chunkStart += CHUNK_SIZE) {
+      const chunkEnd = Math.min(chunkStart + CHUNK_SIZE, totalLeads);
+
+      for (let i = chunkStart; i < chunkEnd; i++) {
+        const lead = leads[i];
+
+        // Keep already sent leads untouched as immutable history
+        if (lead.status === 'sent') {
+          updatedLeads[i] = lead;
+          continue;
+        }
+
+        const isMatch = hasFilter ? filterFn(lead) : true;
+
+        // If user explicitly chose "Sync Filtered Only", leave non-matching pending leads as-is
+        if (filteredOnly && !isMatch) {
+          updatedLeads[i] = lead;
+          continue;
+        }
+
+        let newSubject = '';
+        let newBody = '';
+
+        if (isMulti) {
+          const rotated = getRotatedContentForIndex(pendingIdx, currentSettings);
+          newSubject = rotated.subject.trim() ? fastRenderTemplate(rotated.subject, lead) : (lead.subject || '');
+          newBody = rotated.body.trim() ? fastRenderTemplate(rotated.body, lead) : (lead.body || '');
+          pendingIdx++;
+        } else {
+          newSubject = subjTemplate.trim() ? fastRenderTemplate(subjTemplate, lead) : (lead.subject || '');
+          newBody = bodyTemplate.trim() ? fastRenderTemplate(bodyTemplate, lead) : (lead.body || '');
+        }
+
+        updatedCount++;
+        if (isMatch) filteredUpdatedCount++;
+
+        updatedLeads[i] = {
+          ...lead,
+          subject: newSubject,
+          body: newBody,
+          errorMessage: null
+        };
+      }
+
+      // If large dataset, yield every chunk and update progress
+      if (totalLeads > 4000 && chunkEnd < totalLeads) {
+        const pct = Math.round((chunkEnd / totalLeads) * 100);
+        if (activeBtn) {
+          activeBtn.innerHTML = `<span>🔄 Syncing... (${pct}%)</span>`;
+        }
+        await new Promise((r) => setTimeout(r, 0));
+      }
+    }
+
+    // Auto-save templates and updated leads to storage
+    currentLeads = updatedLeads;
+
+    await chrome.storage.local.set({
+      leads: updatedLeads,
+      csvTemplate: { subject: subjTemplate, body: bodyTemplate },
+      settings: currentSettings
+    });
+
+    renderLeadsList();
+
+    const elapsedSec = ((performance.now() - startTime) / 1000).toFixed(2);
+
+    let detailStr = '';
+    if (isMulti) {
+      const targetLabel =
+        currentSettings.contentRotationTarget === 'both'
+          ? 'Subject & Body'
+          : currentSettings.contentRotationTarget === 'subject'
+          ? 'Subject only'
+          : 'Body only';
+      const modeLabel = currentSettings.contentRotationMode === 'random' ? 'Random' : 'Sequential';
+      detailStr = ` with multi-content rotation (${targetLabel}, ${modeLabel})`;
+    }
+
+    let feedbackMsg = '';
+    if (filteredOnly) {
+      feedbackMsg = `✅ Successfully synced updated templates${detailStr} to ${updatedCount.toLocaleString()} filtered lead${updatedCount === 1 ? '' : 's'} in ${elapsedSec}s!`;
+    } else {
+      const filterAddon = hasFilter && filteredUpdatedCount > 0
+        ? ` (including ${filteredUpdatedCount.toLocaleString()} matching filtered leads)`
+        : '';
+      feedbackMsg = `✅ Successfully synced updated templates${detailStr} to ${updatedCount.toLocaleString()} pending lead${updatedCount === 1 ? '' : 's'}${filterAddon} in ${elapsedSec}s!`;
+    }
+
+    showBanner(contentSyncBanner, feedbackMsg, 'success');
+
+    // Quick success indicator on button
+    if (activeBtn) {
+      activeBtn.innerHTML = `<span>✓ Synced (${updatedCount.toLocaleString()})</span>`;
+      setTimeout(() => {
+        if (activeBtn) {
+          activeBtn.disabled = false;
+          activeBtn.innerHTML = originalBtnHtml;
+        }
+      }, 2500);
+    }
+  } catch (err) {
+    console.error('Error syncing content to leads:', err);
+    showBanner(contentSyncBanner, `Failed to sync content to leads: ${err.message}`, 'error');
+    if (activeBtn) {
+      activeBtn.disabled = false;
+      activeBtn.innerHTML = originalBtnHtml;
+    }
   }
-
-  showBanner(
-    contentSyncBanner,
-    `Successfully synced updated templates${detailStr} to ${updatedCount} pending lead${updatedCount === 1 ? '' : 's'}!`,
-    'success'
-  );
 }
 
 /**
- * Collect all available column headers from current leads
+ * Collect all available column headers from current leads (sampling up to 50 leads)
  */
 function getAvailableFilterColumns() {
   const colSet = new Set();
+  const sampleLimit = Math.min(currentLeads.length, 50);
 
-  currentLeads.forEach((lead) => {
-    const rowObj = getLeadRowObj(lead);
-    Object.keys(rowObj).forEach((k) => {
-      const lower = k.toLowerCase().trim();
-      if (
-        lower &&
-        lower !== 'body' &&
-        lower !== 'id' &&
-        lower !== 'status' &&
-        lower !== 'sentat' &&
-        lower !== 'errormessage' &&
-        lower !== 'isprioritized' &&
-        lower !== 'rowobj'
-      ) {
-        colSet.add(lower);
+  for (let i = 0; i < sampleLimit; i++) {
+    const lead = currentLeads[i];
+    if (!lead) continue;
+    if (lead.rowObj) {
+      for (const k in lead.rowObj) {
+        const lower = k.toLowerCase().trim();
+        if (
+          lower &&
+          lower !== 'body' &&
+          lower !== 'id' &&
+          lower !== 'status' &&
+          lower !== 'sentat' &&
+          lower !== 'errormessage' &&
+          lower !== 'isprioritized' &&
+          lower !== 'rowobj'
+        ) {
+          colSet.add(lower);
+        }
       }
-    });
-  });
+    }
+  }
 
   if (colSet.size === 0) {
     colSet.add('email');
   }
 
-  const cols = Array.from(colSet);
-  return cols.sort((a, b) => a.localeCompare(b));
+  return Array.from(colSet).sort((a, b) => a.localeCompare(b));
 }
 
 /**
@@ -4703,12 +4901,13 @@ function getColumnDistinctValues(col) {
   if (!col) return [];
   const targetCol = col.toLowerCase().trim();
   const valSet = new Set();
+  const sampleLimit = Math.min(currentLeads.length, 500);
 
-  for (const lead of currentLeads) {
-    const rowObj = getLeadRowObj(lead);
-    const val = rowObj[targetCol];
-    if (val !== undefined && val !== null && String(val).trim()) {
-      valSet.add(String(val).trim());
+  for (let i = 0; i < sampleLimit; i++) {
+    const lead = currentLeads[i];
+    const val = getLeadFieldValue(lead, targetCol);
+    if (val && val.trim()) {
+      valSet.add(val.trim());
       if (valSet.size >= 50) break;
     }
   }
@@ -4716,16 +4915,15 @@ function getColumnDistinctValues(col) {
 }
 
 /**
- * Evaluate whether a single lead satisfies the filter rules
+ * Fast evaluation whether a single lead satisfies the filter rules
  */
 function evaluateLeadMatch(lead, rules = filterRules, matchMode = filterMatchMode) {
   if (!rules || rules.length === 0) return false;
-  const rowObj = getLeadRowObj(lead);
 
   const checkRule = (rule) => {
     if (!rule || !rule.col) return true;
     const colKey = rule.col.toLowerCase().trim();
-    const cellValue = String(rowObj[colKey] !== undefined ? rowObj[colKey] : '').trim().toLowerCase();
+    const cellValue = getLeadFieldValue(lead, colKey).trim().toLowerCase();
     const filterVal = String(rule.val || '').trim().toLowerCase();
     const op = rule.op || 'contains';
 
@@ -5023,19 +5221,29 @@ function handleFilterRuleClick(e) {
 }
 
 /**
- * Update the dynamic matching statistics label
+ * Update the dynamic matching statistics label and syncFilteredOnlyBtn
  */
 function updateFilterMatchStats() {
   if (!filterMatchCountText) return;
   if (filterRules.length === 0) {
-    filterMatchCountText.textContent = `0 rules active (${currentLeads.length} leads in queue)`;
+    filterMatchCountText.textContent = `0 rules active (${currentLeads.length.toLocaleString()} leads in queue)`;
+    if (syncFilteredOnlyBtn) syncFilteredOnlyBtn.style.display = 'none';
     return;
   }
 
   const matchingLeads = currentLeads.filter((l) => evaluateLeadMatch(l, filterRules, filterMatchMode));
   const matchingPending = matchingLeads.filter((l) => l.status === 'pending');
 
-  filterMatchCountText.innerHTML = `<strong>${matchingPending.length}</strong> pending (${matchingLeads.length} total) match criteria`;
+  filterMatchCountText.innerHTML = `<strong>${matchingPending.length.toLocaleString()}</strong> pending (${matchingLeads.length.toLocaleString()} total) match criteria`;
+
+  if (syncFilteredOnlyBtn) {
+    if (matchingPending.length > 0) {
+      syncFilteredOnlyBtn.style.display = 'inline-flex';
+      syncFilteredOnlyBtn.innerHTML = `🎯 Sync Filtered Only (${matchingPending.length.toLocaleString()})`;
+    } else {
+      syncFilteredOnlyBtn.style.display = 'none';
+    }
+  }
 }
 
 /**
@@ -5085,10 +5293,12 @@ async function handlePrioritizeLeads() {
 
   const reorderedLeads = [...matchingPending, ...otherPending, ...otherLeads];
   await chrome.storage.local.set({ leads: reorderedLeads });
+  currentLeads = reorderedLeads;
+  renderLeadsList();
 
   showBanner(
     filterStatusBanner,
-    `🚀 Prioritized ${matchingPending.length} matching lead${matchingPending.length === 1 ? '' : 's'}! They are now at the top of the queue and will be sent first.`,
+    `🚀 Prioritized ${matchingPending.length.toLocaleString()} matching lead${matchingPending.length === 1 ? '' : 's'}! They are now at the top of the queue and will be sent first.`,
     'success'
   );
 }
@@ -5115,5 +5325,6 @@ function handleToggleFilterView() {
       toggleFilterViewBtn.textContent = '👁️ Filter View Only';
     }
   }
+  updateFilterMatchStats();
   renderLeadsList();
 }

@@ -5,6 +5,7 @@
   "description": "Midey: Send personalized cold emails and follow-ups from JSON or CSV directly through your Gmail web app with templates, rotating signatures, and automated queue.",
   "permissions": [
     "storage",
+    "unlimitedStorage",
     "tabs",
     "scripting",
     "alarms",

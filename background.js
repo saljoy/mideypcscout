@@ -900,8 +900,26 @@ async function executeAutoSendForLead(leadId, storageKey = 'leads') {
     return { success: false, error: 'Lead not found.' };
   }
 
-  const targetLead = leads[leadIndex];
+  let targetLead = leads[leadIndex];
   const settings = data.settings || {};
+
+  // Smart fallback: synthesize subject and body from templates if empty
+  if (!targetLead.subject?.trim() || !targetLead.body?.trim()) {
+    const { csvTemplate = {} } = await chrome.storage.local.get('csvTemplate');
+    const rowObj = { ...(targetLead.rowObj || {}), email: targetLead.email || '' };
+    let resolvedSubj = targetLead.subject || '';
+    let resolvedBody = targetLead.body || '';
+
+    if (!resolvedSubj.trim()) {
+      const tplSubj = (settings.subjectTemplates?.find((s) => s && s.trim()) || csvTemplate.subject || '').trim();
+      if (tplSubj) resolvedSubj = replaceTemplateTags(tplSubj, rowObj);
+    }
+    if (!resolvedBody.trim()) {
+      const tplBody = (settings.bodyTemplates?.find((b) => b && b.trim()) || csvTemplate.body || '').trim();
+      if (tplBody) resolvedBody = replaceTemplateTags(tplBody, rowObj);
+    }
+    targetLead = { ...targetLead, subject: resolvedSubj, body: resolvedBody };
+  }
 
   // Mark lead as sending
   leads[leadIndex] = {
@@ -2227,9 +2245,25 @@ async function handleInPageCompose(lead) {
       await sleep(400);
     }
 
+    // 4.3. Smart Fallback: synthesize subject and body from templates if empty
+    const { settings = {}, csvTemplate = {} } = await chrome.storage.local.get(['settings', 'csvTemplate']);
+    let resolvedSubject = lead.subject || '';
+    let resolvedBody = lead.body || '';
+
+    if (!resolvedSubject.trim() || !resolvedBody.trim()) {
+      const rowObj = { ...(lead.rowObj || {}), email: lead.email || '' };
+      if (!resolvedSubject.trim()) {
+        const tplSubj = (settings.subjectTemplates?.find((s) => s && s.trim()) || csvTemplate.subject || '').trim();
+        if (tplSubj) resolvedSubject = replaceTemplateTags(tplSubj, rowObj);
+      }
+      if (!resolvedBody.trim()) {
+        const tplBody = (settings.bodyTemplates?.find((b) => b && b.trim()) || csvTemplate.body || '').trim();
+        if (tplBody) resolvedBody = replaceTemplateTags(tplBody, rowObj);
+      }
+    }
+
     // 4.5. Compute body with rotating signature if enabled
-    const finalBody = await getLeadBodyWithSignature(lead.body);
-    const { settings = {} } = await chrome.storage.local.get('settings');
+    const finalBody = await getLeadBodyWithSignature(resolvedBody);
 
     // 5. Inject and run the step-by-step in-page compose automation
     const results = await chrome.scripting.executeScript({
@@ -2239,7 +2273,7 @@ async function handleInPageCompose(lead) {
         {
           email: lead.email || null,
           bccEmails: Array.isArray(lead.bccEmails) ? lead.bccEmails : null,
-          subject: lead.subject,
+          subject: resolvedSubject,
           body: finalBody,
           autoSend: false,
           confidentialMode: Boolean(settings.enableConfidentialMode),
@@ -2301,6 +2335,64 @@ async function getLeadBodyWithSignature(leadBody) {
   if (trimmedBody.endsWith(trimmedSig)) return leadBody || '';
 
   return trimmedBody ? `${trimmedBody}\n\n${trimmedSig}` : trimmedSig;
+}
+
+/**
+ * Replace {tag} in templates using lead/row details
+ */
+function replaceTemplateTags(template, rowObj) {
+  if (!template || !template.includes('{')) return template || '';
+  return template.replace(/\{([\w-]+)\}/gi, (match, tag) => {
+    const key = tag.toLowerCase();
+    if (rowObj && rowObj[key] !== undefined && rowObj[key] !== null) {
+      return String(rowObj[key]);
+    }
+    return match;
+  });
+}
+
+/**
+ * Get next rotated subject & body content from settings
+ */
+async function getNextRotatedContent(settings) {
+  const subjects = (Array.isArray(settings.subjectTemplates) ? settings.subjectTemplates : [])
+    .filter((s) => s && s.trim());
+  const bodies = (Array.isArray(settings.bodyTemplates) ? settings.bodyTemplates : [])
+    .filter((b) => b && b.trim());
+
+  if (subjects.length === 0 && bodies.length === 0) return null;
+
+  const target = settings.contentRotationTarget || 'both';
+  const mode = settings.contentRotationMode || 'sequential';
+
+  const { rotationPointer = 0 } = await chrome.storage.local.get('rotationPointer');
+  const nextPointer = rotationPointer + 1;
+  await chrome.storage.local.set({ rotationPointer: nextPointer });
+
+  let chosenSubject = '';
+  let chosenBody = '';
+
+  if (target === 'body') {
+    chosenSubject = subjects[0] || '';
+  } else if (subjects.length > 0) {
+    if (mode === 'random') {
+      chosenSubject = subjects[Math.floor(Math.random() * subjects.length)];
+    } else {
+      chosenSubject = subjects[rotationPointer % subjects.length];
+    }
+  }
+
+  if (target === 'subject') {
+    chosenBody = bodies[0] || '';
+  } else if (bodies.length > 0) {
+    if (mode === 'random') {
+      chosenBody = bodies[Math.floor(Math.random() * bodies.length)];
+    } else {
+      chosenBody = bodies[rotationPointer % bodies.length];
+    }
+  }
+
+  return { subject: chosenSubject, body: chosenBody };
 }
 
 /**

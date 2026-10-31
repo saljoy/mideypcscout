@@ -2116,3 +2116,14 @@ body.dock-bottom {
 body.dock-bottom .analytics-stats-grid {
   grid-template-columns: repeat(4, 1fr);
 }
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.spin-icon {
+  display: inline-block;
+  animation: spin 0.75s linear infinite;
+  transform-origin: center center;
+}
